@@ -1,0 +1,39 @@
+{
+  "productName": "Soul Agent Launcher",
+  "version": "0.2.2",
+  "identifier": "com.soul.agent.launcher",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null,
+      "devCsp": null
+    },
+    "windows": [
+      {
+        "title": "Soul Agent Launcher",
+        "width": 960,
+        "height": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": true,
+        "decorations": false,
+        "transparent": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "wix": {
+        "upgradeCode": "A1B2C3D4-5E6F-7A8B-9C0D-1E2F3A4B5C6D"
+      }
+    }
+  }
+}

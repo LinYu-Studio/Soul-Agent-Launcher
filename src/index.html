@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soul Agent Launcher</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="mica" aria-hidden="true"></div>
+    <div class="mica-noise" aria-hidden="true"></div>
+
+    <!-- SVG 图标库（Lucide 风格，Win11 亚克力概念图标） -->
+    <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+      <defs>
+        <symbol id="icon-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+        </symbol>
+        <symbol id="icon-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0018 8 6 6 0 006 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 018.91 14"/>
+        </symbol>
+        <symbol id="icon-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+        </symbol>
+        <symbol id="icon-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+        </symbol>
+        <symbol id="icon-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </symbol>
+        <symbol id="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </symbol>
+        <symbol id="icon-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="15" r="4"/><line x1="10.85" y1="12.15" x2="19" y2="4"/><line x1="18" y1="5" x2="20" y2="7"/><line x1="15" y1="8" x2="17" y2="10"/>
+        </symbol>
+        <symbol id="icon-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </symbol>
+        <symbol id="icon-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+        </symbol>
+        <symbol id="icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- Setup Overlay (首次启动) -->
+    <div class="setup-overlay hidden" id="setupOverlay">
+        <div class="setup-box">
+            <img src="assets/thinker-icon.png" width="48" height="48" class="setup-logo">
+            <h1 class="setup-title">Soul Agent Launcher</h1>
+            <p class="setup-subtitle">正在完成首次配置...</p>
+
+            <div class="setup-progress-wrap">
+                <div class="setup-progress-bar" id="setupProgressBar">
+                    <div class="setup-progress-fill" id="setupProgressFill"></div>
+                </div>
+                <div class="setup-progress-text" id="setupProgressText">准备中...</div>
+            </div>
+
+            <div class="setup-status" id="setupStatus">
+                <div class="setup-spinner"></div>
+                <span id="setupMessage">正在检测系统环境...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Title Bar -->
+    <div class="title-bar">
+        <span class="title-text">Soul Agent Launcher</span>
+        <span class="title-subtitle" id="serverStatusBadge">● 已断开</span>
+        <div class="window-controls">
+            <button class="window-btn" onclick="minimizeWindow()" title="最小化">
+                <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5" width="8" height="2" fill="currentColor"/></svg>
+            </button>
+            <button class="window-btn" onclick="maximizeWindow()" title="最大化">
+                <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            </button>
+            <button class="window-btn close-btn" onclick="closeWindow()" title="关闭">
+                <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.5"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="main-layout">
+        <!-- Sidebar Navigation (PCL 2 风格) -->
+        <div class="sidebar sidebar-acrylic">
+            <div class="sidebar-brand">
+                <img src="assets/thinker-icon.png" width="28" height="28" class="sidebar-logo">
+                <span class="sidebar-title">Soul Agent</span>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="home">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h1v7c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-7h1a1 1 0 0 0 .7-1.7l-9-8.5a1 1 0 0 0-1.4 0l-9 8.5A1 1 0 0 0 3 13zm7 7v-5h4v5h-4zm2-15.6 7 6.6H5l7-6.6z"/></svg>
+                    <span>首页</span>
+                </a>
+                <a href="#" class="nav-item" data-page="models">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
+                    <span>模型</span>
+                </a>
+                <a href="#" class="nav-item" data-page="launch">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+                    <span>启动</span>
+                </a>
+                <a href="#" class="nav-item" data-page="chat">
+                    <svg class="svg-icon" width="20" height="20"><use href="#icon-chat"/></svg>
+                    <span>极简对话</span>
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span>设置</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-version">v0.2.2</div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="content">
+            <!-- ===== 首页 ===== -->
+            <div class="page active" id="page-home">
+                <h2 class="page-title">欢迎使用 Soul Agent Launcher</h2>
+                <p class="page-desc">管理您的本地 AI 模型服务和启动器。</p>
+
+                <div class="card-grid">
+                    <div class="card" id="statusCard">
+                        <div class="card-header">
+                            <span class="card-icon">●</span>
+                            <span class="card-title">服务状态</span>
+                        </div>
+                        <div class="card-body" style="text-align:center;padding:24px 0;">
+                            <div class="status-dot" id="homeStatusDot">●</div>
+                            <div class="status-label" id="homeStatusLabel">检测中...</div>
+                            <div class="status-detail" id="homeStatusDetail">Port: 20000</div>
+                            <div class="api-endpoint" id="homeApiEndpoint" style="display:none;margin-top:10px;font-size:11px;background:var(--bg-primary);padding:8px 12px;border-radius:6px;border:1px solid var(--border-subtle);word-break:break-all;">
+                                <span style="color:var(--text-tertiary)">双端点 API:</span><br>
+                                <code id="homeApiUrl" style="color:var(--accent);font-size:11px;"></code>
+                            </div>
+                            <div class="card-actions" style="margin-top:16px;">
+                                <button class="btn btn-accent" id="homeStartBtn" onclick="switchPage('launch')">启动服务</button>
+                                <button class="btn btn-danger" id="homeStopBtn" onclick="stopServer()" style="display:none;">停止服务</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
+                            <span class="card-title">模型管理</span>
+                        </div>
+                        <div class="card-body" style="text-align:center;padding:24px 0;">
+                            <div class="model-count" id="homeModelCount">0</div>
+                            <div class="model-label">个 GGUF 模型</div>
+                            <div class="card-actions" style="margin-top:16px;">
+                                <button class="btn" onclick="switchPage('models')">管理模型</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-bulb"/></svg></span>
+                            <span class="card-title">快速指引</span>
+                        </div>
+                        <div class="quick-guide">
+                            <div class="guide-step">
+                                <span class="step-num">1</span>
+                                <span>设置路径（在设置中配置，首次自动完成）</span>
+                            </div>
+                            <div class="guide-step">
+                                <span class="step-num">2</span>
+                                <span>下载或添加 GGUF 模型到模型目录</span>
+                            </div>
+                            <div class="guide-step">
+                                <span class="step-num">3</span>
+                                <span>在「启动服务」选择模型并一键启动</span>
+                            </div>
+                            <div class="guide-step">
+                                <span class="step-num">4</span>
+                                <span>双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
+                            </div>
+                            <div class="guide-step">
+                                <span class="step-num">5</span>
+                                <span>Soul Agent 及其他 OpenAI 客户端可直接连接</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 模型页 ===== -->
+            <div class="page" id="page-models">
+                <div class="page-header-actions">
+                    <h2 class="page-title">模型管理</h2>
+                    <button class="btn btn-accent" onclick="refreshModels()">刷新</button>
+                </div>
+                <p class="page-desc">管理本地模型或从魔塔社区搜索下载。</p>
+
+                <!-- Tabs -->
+                <div class="tab-bar">
+                    <button class="tab-btn active" onclick="switchModelTab('local')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-folder"/></svg> 本地模型</button>
+                    <button class="tab-btn" onclick="switchModelTab('hub')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-globe"/></svg> 魔塔社区</button>
+                    <button class="tab-btn" onclick="switchModelTab('official')">
+                        <img src="assets/thinker-icon.png" width="14" height="14" style="border-radius:3px;vertical-align:middle;margin-right:4px;">
+                        Soul Agent Launcher 官方模型
+                    </button>
+                </div>
+
+                <!-- 本地模型 -->
+                <div class="tab-content active" id="tab-local">
+                    <div class="model-list" id="modelList">
+                        <div class="model-empty">
+                            <p>暂无模型<br><small>请先在设置中配置模型目录路径</small></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 魔塔社区 -->
+                <div class="tab-content" id="tab-hub">
+                    <div class="hub-search">
+                        <input type="text" id="hubSearchInput" class="hub-search-input"
+                            placeholder="搜索 GGUF 模型（如 Qwen、DeepSeek、Llama）"
+                            onkeydown="if(event.key==='Enter') searchHubModels()">
+                        <button class="btn btn-accent" onclick="searchHubModels()">搜索</button>
+                    </div>
+
+                    <div id="hubFilterRow" class="hub-filter-row">
+                        <button class="chip active" data-keyword="GGUF" onclick="quickSearch('GGUF', this)">GGUF</button>
+                        <button class="chip" data-keyword="Qwen GGUF" onclick="quickSearch('Qwen GGUF', this)">Qwen</button>
+                        <button class="chip" data-keyword="DeepSeek GGUF" onclick="quickSearch('DeepSeek GGUF', this)">DeepSeek</button>
+                        <button class="chip" data-keyword="Llama GGUF" onclick="quickSearch('Llama GGUF', this)">Llama</button>
+                        <button class="chip" data-keyword="GLM GGUF" onclick="quickSearch('GLM GGUF', this)">GLM</button>
+                        <button class="chip" data-keyword="Yi GGUF" onclick="quickSearch('Yi GGUF', this)">Yi</button>
+                    </div>
+
+                    <div class="hub-status" id="hubStatus">
+                        <span class="hub-status-text">输入关键词开始搜索魔塔社区模型</span>
+                    </div>
+
+                    <div class="hub-grid" id="hubGrid"></div>
+                </div>
+
+                <!-- Soul Agent Launcher 官方模型 -->
+                <div class="tab-content" id="tab-official">
+                    <div class="official-section">
+                        <div class="official-header">
+                            <img src="assets/thinker-icon.png" width="28" height="28" class="official-icon">
+                            <span class="official-title">Soul Agent Launcher 官方模型</span>
+                        </div>
+                        <div class="official-body">
+                            <p class="official-desc">官方推荐的 GGUF 模型，由 Soul Agent 团队精选和优化，点击即可下载。</p>
+                        </div>
+                    </div>
+                    <!-- 官方模型列表 -->
+                    <div class="official-model-list" id="officialModelList">
+                        <div class="official-loading">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 启动页 ===== -->
+            <div class="page" id="page-launch">
+                <h2 class="page-title">启动服务</h2>
+                <p class="page-desc">选择模型并启动推理服务。</p>
+
+                <!-- 选择模型 -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
+                        <span class="card-title">选择模型</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>模型文件</label>
+                            <div class="model-check-list" id="modelCheckList">
+                                <div class="model-check-empty">暂无模型，请先在「模型」页添加 GGUF 模型</div>
+                            </div>
+                            <small>可多选，每个选中的模型将独立启动</small>
+                        </div>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                            <div class="form-group" style="flex:1;min-width:100px;">
+                                <label>起始端口</label>
+                                <input type="number" id="launchPort" class="form-input" value="20000" style="width:100%;">
+                            </div>
+                            <div class="form-group" style="flex:1;min-width:100px;">
+                                <label>上下文长度</label>
+                                <select id="launchCtx" class="form-select win11-select" style="width:100%;">
+                                    <option value="2048">2K</option>
+                                    <option value="4096" selected>4K</option>
+                                    <option value="8192">8K</option>
+                                    <option value="16384">16K</option>
+                                    <option value="32768">32K</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 服务状态 -->
+                <div class="engine-card">
+                    <div class="engine-header">
+                        <div class="engine-icon"><svg class="svg-icon acrylic-lg"><use href="#icon-gear"/></svg></div>
+                        <div class="engine-info">
+                            <div class="engine-name">推理服务</div>
+                            <div class="engine-status" id="serverStatus">
+                                <span class="engine-dot offline" id="serverDot">●</span>
+                                <span id="serverLabel">未启动</span>
+                            </div>
+                        </div>
+                        <div class="engine-actions">
+                            <button class="btn btn-accent" id="startServerBtn" onclick="startServer()">启动服务</button>
+                            <button class="btn btn-danger" id="stopServerBtn" onclick="stopServer()" style="display:none;">停止服务</button>
+                        </div>
+                    </div>
+                    <div class="engine-detail" id="serverDetail">端口 20000 · 已停止</div>
+                </div>
+
+                <!-- API 端点信息 -->
+                <div class="api-endpoint" id="apiEndpoint" style="display:none;margin-top:10px;margin-bottom:16px;font-size:11px;background:var(--bg-primary);padding:8px 12px;border-radius:6px;border:1px solid var(--border-subtle);word-break:break-all;">
+                    <span style="color:var(--text-tertiary)">双端点 API:</span><br>
+                    <code style="color:var(--accent);font-size:11px;" id="apiUrl"></code>
+                </div>
+
+                <!-- 快速指引 -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-bulb"/></svg></span>
+                        <span class="card-title">快速指引</span>
+                    </div>
+                    <div class="quick-guide">
+                        <div class="guide-step">
+                            <span class="step-num">1</span>
+                            <span>在设置中配置 llama.cpp 路径和模型目录（首次自动安装）</span>
+                        </div>
+                        <div class="guide-step">
+                            <span class="step-num">2</span>
+                            <span>在「模型」页面下载或添加 GGUF 模型文件</span>
+                        </div>
+                        <div class="guide-step">
+                            <span class="step-num">3</span>
+                            <span>回到本页选择模型，点击「启动服务」即可运行</span>
+                        </div>
+                        <div class="guide-step">
+                            <span class="step-num">4</span>
+                            <span>双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
+                        </div>
+                        <div class="guide-step">
+                            <span class="step-num">5</span>
+                            <span>Soul Agent 及其他 OpenAI 客户端可直接连接使用</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="runningModelsCard" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
+                        <span class="card-title">已启动模型</span>
+                        <div class="card-header-actions">
+                            <button class="btn btn-sm" onclick="unloadSelectedModels()" id="unloadSelectedBtn" style="display:none;color:var(--danger);font-size:11px;">卸载选中</button>
+                            <button class="btn btn-sm" onclick="unloadAllModels()" id="unloadAllBtn" style="font-size:11px;">全部卸载</button>
+                        </div>
+                    </div>
+                    <div class="card-body" id="runningModelsBody">
+                        <div style="text-align:center;padding:20px 0;color:var(--text-tertiary);font-size:13px;" id="noRunningModels">暂无运行中的模型</div>
+                        <div id="runningModelsList" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">控制台输出</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="console" id="consoleOutput">
+                            <div class="console-line info">等待启动...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 极简对话 (Soul Agent Lite) ===== -->
+            <div class="page" id="page-chat">
+                <div class="chat-container" id="liteContainer">
+                    <div class="chat-messages" id="liteMessages">
+                        <div class="welcome-message" style="text-align:center;padding:40px 20px;">
+                            <h2 style="font-size:24px;font-weight:600;margin-bottom:12px;">Soul Agent Lite</h2>
+                            <p style="color:var(--text-secondary);font-size:14px;">启动服务后即可开始对话</p>
+                        </div>
+                    </div>
+
+                    <div class="ctx-status" id="liteCtxStatus">
+                        <svg class="ctx-ring" width="12" height="12" viewBox="0 0 12 12">
+                            <circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-subtle)" stroke-width="1.5"/>
+                            <circle class="ctx-ring-fill" id="liteCtxRingFill" cx="6" cy="6" r="5" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="31.416" stroke-dashoffset="31.416" transform="rotate(-90 6 6)" stroke-linecap="round"/>
+                        </svg>
+                        <span class="ctx-text" id="liteCtxText">0% - 0.00K/2.00K 已使用</span>
+                        <input type="checkbox" id="liteMultimodal" style="display:none;">
+                        <div class="status-center">
+                            <div class="status-toggle think-tgl active" id="liteThinkToggle" title="深度思考">
+                                <img class="tgl-icon" src="assets/thinker-icon.png" width="14" height="14">
+                                <span class="tgl-label">深度思考</span>
+                            </div>
+                        </div>
+                        <div class="status-right">
+                            <div class="status-toggle active" id="liteToolToggle" title="工具调用" onclick="clearChat()">
+                                <svg class="tgl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                                <span class="tgl-label">清空对话</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-bar">
+                        <textarea id="userInput" placeholder="输入消息..." rows="1"
+                            style="flex:1;resize:none;overflow:hidden;" disabled></textarea>
+                        <button class="btn btn-accent" id="sendBtn" onclick="sendLiteMessage()" disabled>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                            发送
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== 设置页 ===== -->
+            <div class="page" id="page-settings">
+                <h2 class="page-title">设置</h2>
+                <p class="page-desc">配置 Soul Agent Launcher 的各项参数。</p>
+
+                <div class="settings-section">
+                    <h3 class="section-title">服务路径</h3>
+                    <div class="form-group">
+                        <label>llama.cpp 可执行文件路径</label>
+                        <div class="input-with-btn">
+                            <input type="text" id="llamaPath" class="form-input" placeholder="C:\llama\build\bin\Release\llama-server.exe">
+                            <button class="btn" onclick="selectFilePath('llamaPath')">选择</button>
+                        </div>
+                        <small>llama-server 或 llama-cli 的完整路径</small>
+                    </div>
+                    <div class="form-group">
+                        <label>模型目录</label>
+                        <div class="input-with-btn">
+                            <input type="text" id="modelsDir" class="form-input" placeholder="C:\models">
+                            <button class="btn" onclick="selectFolderPath('modelsDir')">选择</button>
+                        </div>
+                        <small>存放 GGUF 模型的文件夹</small>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title">默认参数</h3>
+                    <div class="form-group">
+                        <label>默认端口</label>
+                        <input type="number" id="defaultPort" class="form-input" value="20000" style="width:120px;">
+                    </div>
+                    <div class="form-group">
+                        <label>默认上下文长度</label>
+                        <select id="defaultCtx" class="form-select" style="width:120px;">
+                            <option value="2048">2K</option>
+                            <option value="4096" selected>4K</option>
+                            <option value="8192">8K</option>
+                            <option value="16384">16K</option>
+                            <option value="32768">32K</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title">极致精简编译</h3>
+                    <div class="form-group">
+                        <label>从源码编译极致精简版 llama-server</label>
+                        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;">
+                            CPU-only 静态编译 + UPX，仅保留 Server + 多模态。<br>
+                            <code>/chat</code> 原生流式 · <code>/v1/chat/completions</code> 待机流式<br>
+                            多模态启动时加 <code>--mmproj</code>
+                        </p>
+                        <div class="input-with-btn" style="margin-bottom:8px;">
+                            <input type="text" id="buildScriptPath" class="form-input"
+                                placeholder="E:\Soul\Soul Agent Launcher\build-llama\build-minimal.ps1"
+                                value="E:\Soul\Soul Agent Launcher\build-llama\build-minimal.ps1">
+                            <button class="btn" onclick="selectFilePath('buildScriptPath')">选择</button>
+                        </div>
+                        <div class="card-actions" style="justify-content:flex-start;">
+                            <button class="btn btn-accent" onclick="buildMinimal()">开始编译</button>
+                        </div>
+                        <div id="buildStatus" style="margin-top:8px;font-size:12px;color:var(--text-tertiary);"></div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title">外观</h3>
+                    <div class="form-group">
+                        <label>主题模式</label>
+                        <div class="theme-switch">
+                            <input type="checkbox" id="themeToggle">
+                            <label for="themeToggle" class="theme-slider"></label>
+                            <span id="themeLabel">亮色模式</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title">行为</h3>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="autoUnloadModels">
+                            退出时自动卸载模型
+                        </label>
+                        <div class="form-hint">关闭窗口后清理所有模型进程，释放显存</div>
+                    </div>
+                </div>
+
+                <div class="card-actions" style="margin-top:24px;">
+                    <button class="btn btn-accent" onclick="saveSettings()">保存设置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download Overlay -->
+    <div class="download-overlay hidden" id="downloadOverlay">
+        <div class="download-box">
+            <h3 id="downloadTitle">正在下载模型</h3>
+            <p id="downloadModelInfo">请稍候...</p>
+            <div class="download-progress-bar">
+                <div class="download-progress-fill" id="downloadProgressFill" style="width:0%"></div>
+            </div>
+            <div class="download-progress-text" id="downloadProgressPct">0%</div>
+            <div class="download-progress-message" id="downloadProgressMsg">准备中...</div>
+            <div class="card-actions" style="margin-top:12px;">
+                <button class="btn btn-danger" onclick="cancelDownload()">取消下载</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
