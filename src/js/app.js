@@ -1,21 +1,333 @@
 // Soul Agent Launcher - 前端逻辑
 
 // ============================================================
+// 更新检查
+// ============================================================
+
+const UPDATE_API_URL = 'https://sal.bszx.site/api/check-update';
+const SKIP_UPDATE_KEY = 'sal-skip-update';
+
+async function checkUpdate() {
+    try {
+        var currentVersion = '0.3.3';
+        var resp = await fetch(UPDATE_API_URL + '?current_version=' + currentVersion, {
+            signal: AbortSignal.timeout(5000)
+        });
+        var data = await resp.json();
+        if (!data.has_update) return;
+
+        // 检查是否已跳过此版本
+        var skipped = localStorage.getItem(SKIP_UPDATE_KEY);
+        if (skipped === data.latest_version) return;
+
+        showUpdateCard(data);
+    } catch (e) {
+        console.warn('检查更新失败:', e);
+    }
+}
+
+function showUpdateCard(data) {
+    var existing = document.getElementById('updateCard');
+    if (existing) existing.remove();
+
+    var card = document.createElement('div');
+    card.id = 'updateCard';
+    card.className = 'update-card';
+    card.innerHTML =
+        '<div class="update-card-content">' +
+            '<div class="update-card-icon">📦</div>' +
+            '<div class="update-card-body">' +
+                '<div class="update-card-title">SAL ' + data.latest_version + ' 发布！</div>' +
+                '<div class="update-card-desc">' + (data.release_notes || '建议更新至最新版！') + '</div>' +
+            '</div>' +
+        '</div>' +
+        '<div class="update-card-actions">' +
+            '<button class="btn btn-accent" onclick="doUpdate(\'' + data.download_url + '\')">更新</button>' +
+            '<button class="btn btn-outline" onclick="skipUpdate(\'' + data.latest_version + '\')">跳过</button>' +
+        '</div>';
+
+    document.body.appendChild(card);
+    // 渐显动画
+    requestAnimationFrame(function() {
+        card.classList.add('visible');
+    });
+}
+
+window.doUpdate = function(url) {
+    if (url) window.open(url, '_blank');
+    var card = document.getElementById('updateCard');
+    if (card) card.remove();
+};
+
+window.skipUpdate = function(version) {
+    localStorage.setItem(SKIP_UPDATE_KEY, version);
+    var card = document.getElementById('updateCard');
+    if (card) card.remove();
+};
+
+// ============================================================
+// 启动步骤管理器
+// ============================================================
+
+const SETUP_STEPS = {
+    LANG:      { id: 'lang',      label: '语言检测',   desc: '检测系统语言环境', critical: false, skippable: false },
+    THEME:     { id: 'theme',     label: '主题加载',   desc: '加载用户主题偏好', critical: false, skippable: false },
+    CONFIG:    { id: 'config',    label: '配置恢复',   desc: '从配置文件恢复设置', critical: true,  skippable: false },
+    BACKEND:   { id: 'backend',   label: '硬件检测 + 后端同步', desc: '检测 GPU/CPU 并自动匹配加速端', critical: true, skippable: false },
+    LLAMA_VER: { id: 'llama',     label: '版本校验',   desc: '校验 llama.cpp 版本一致性', critical: false, skippable: true },
+    PYTHON:    { id: 'python',    label: 'Python 检测', desc: '检测 Python 是否已安装', critical: false, skippable: true },
+    PIP:       { id: 'pip',       label: 'pip 检测',   desc: '检测 pip 包管理器', critical: false, skippable: true },
+    MODEL_SCOPE:{id: 'mscope',    label: 'ModelScope', desc: '安装模型下载工具', critical: false, skippable: true },
+    SETTINGS:  { id: 'settings',  label: '加载设置',   desc: '加载应用设置', critical: false, skippable: false },
+    UPDATE:    { id: 'update',    label: '版本检查',   desc: '检查新版本更新', critical: false, skippable: true },
+};
+
+var _setupState = {};       // stepId -> { status, error }
+var _currentStep = null;    // 当前正在执行的 stepId
+var _stepSkipRequested = false;
+var _setupErrorLog = [];    // 收集所有错误用于报告
+
+function initSetupState() {
+    Object.values(SETUP_STEPS).forEach(s => {
+        _setupState[s.id] = { status: 'pending', error: null };
+    });
+    _stepSkipRequested = false;
+    _setupErrorLog = [];
+}
+
+function renderSetupSteps() {
+    var container = document.getElementById('setupSteps');
+    if (!container) return;
+    container.innerHTML = Object.values(SETUP_STEPS).map(s => `
+        <div class="setup-step" id="step-${s.id}">
+            <div class="setup-step-icon pending" id="step-icon-${s.id}">○</div>
+            <div>
+                <div class="setup-step-label">${s.label}</div>
+                <div class="setup-step-desc">${s.desc}</div>
+            </div>
+            <div class="setup-step-status" id="step-status-${s.id}"></div>
+        </div>
+    `).join('');
+}
+
+function updateStepUI(stepId, status, extra) {
+    var icon = document.getElementById('step-icon-' + stepId);
+    var statusEl = document.getElementById('step-status-' + stepId);
+    if (!icon || !statusEl) return;
+    icon.className = 'setup-step-icon ' + status;
+    var icons = { pending: '○', running: '◌', success: '✓', skipped: '—', error: '✗' };
+    icon.textContent = icons[status] || '○';
+    var labels = { pending: '', running: '进行中…', success: '完成', skipped: '已跳过', error: '失败' };
+    statusEl.textContent = extra || labels[status] || '';
+    statusEl.className = 'setup-step-status ' + status;
+    _setupState[stepId].status = status;
+    if (status === 'error') {
+        _setupErrorLog.push({ step: stepId, error: extra || '未知错误' });
+    }
+}
+
+function updateSetupMessage(msg) {
+    var el = document.getElementById('setupMessage');
+    if (el) el.textContent = msg;
+}
+
+async function runStep(stepId, fn) {
+    if (_stepSkipRequested) return 'skipped';
+    _currentStep = stepId;
+    updateStepUI(stepId, 'running');
+    showSetupStepError(false);
+    try {
+        await fn();
+        updateStepUI(stepId, 'success');
+        return 'success';
+    } catch (e) {
+        var msg = e.message || String(e);
+        debugLog(`步骤 ${stepId} 失败: ${msg}`);
+        var stepDef = SETUP_STEPS[stepId.toUpperCase().replace(/-/g,'_')];
+        var isCritical = stepDef && stepDef.critical;
+        var isSkippable = stepDef && stepDef.skippable;
+
+        updateStepUI(stepId, 'error', msg.substring(0, 60));
+        _setupErrorLog.push({ step: stepId, error: msg, critical: isCritical });
+
+        if (isCritical) {
+            // 关键错误 → 显示错误报告
+            showCriticalError(stepId, msg);
+            return 'failed';  // 不再继续
+        }
+
+        // 非关键错误 → 可跳过
+        var shouldSkip = await showStepError(stepId, msg, isSkippable);
+        if (shouldSkip) {
+            updateStepUI(stepId, 'skipped');
+            return 'skipped';
+        }
+        // 选择了重试
+        return await runStep(stepId, fn);
+    }
+}
+
+function showSetupStepError(hide) {
+    var box = document.getElementById('setupErrorBox');
+    if (box) box.classList.toggle('hidden', hide !== false);
+}
+
+function showStepError(stepId, msg, skippable) {
+    return new Promise((resolve) => {
+        var box = document.getElementById('setupErrorBox');
+        var title = document.getElementById('setupErrorTitle');
+        var msgEl = document.getElementById('setupErrorMsg');
+        var skipBtn = document.getElementById('setupErrorSkipBtn');
+        var retryBtn = document.getElementById('setupErrorRetryBtn');
+        if (!box || !title || !msgEl) { resolve(true); return; }
+
+        title.textContent = '提示';
+        msgEl.textContent = `${msg}\n\n${skippable ? '点击「跳过」可继续，之后可手动配置。' : '点击「重试」再试一次。'}`;
+        skipBtn.style.display = skippable ? 'inline-block' : 'none';
+        box.classList.remove('hidden');
+
+        window._resolveStepError = function(choice) {
+            box.classList.add('hidden');
+            resolve(choice === 'skip');
+        };
+        skipBtn.onclick = function() { window._resolveStepError('skip'); };
+        retryBtn.onclick = function() { window._resolveStepError('retry'); };
+    });
+}
+
+function showCriticalError(stepId, msg) {
+    var box = document.getElementById('setupReportBox');
+    var msgEl = document.getElementById('setupReportMsg');
+    var detail = document.getElementById('setupReportDetail');
+    if (!box) return;
+    box.classList.remove('hidden');
+    msgEl.textContent = `${stepId} 步骤失败，无法继续运行。`;
+    var report = '=== Soul Agent Launcher 错误报告 ===\n';
+    report += '时间: ' + new Date().toLocaleString() + '\n';
+    report += '版本: ' + (window.__TAURI__?.os?.version ? 'Tauri' : 'Browser') + '\n\n';
+    report += '错误详情:\n';
+    _setupErrorLog.forEach(e => {
+        report += `  [${e.step}] ${e.error}\n`;
+    });
+    report += '\n请将此报告提交至 https://sal.bszx.site/ 反馈区\n';
+    detail.value = report;
+}
+
+window.copyErrorReport = function() {
+    var detail = document.getElementById('setupReportDetail');
+    if (detail) {
+        navigator.clipboard.writeText(detail.value);
+        alert('错误报告已复制到剪贴板');
+    }
+};
+
+window.openFeedback = function() {
+    window.open('https://sal.bszx.site/', '_blank');
+};
+
+window.closeApp = function() {
+    if (window.__TAURI__?.core?.invoke) {
+        window.__TAURI__.core.invoke('close_app').catch(function(){});
+    }
+};
+
+window.skipCurrentStep = function() {
+    if (window._resolveStepError) window._resolveStepError('skip');
+};
+
+window.retryCurrentStep = function() {
+    if (window._resolveStepError) window._resolveStepError('retry');
+};
+
+// ============================================================
 // 初始化
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-    initTheme();
-    await checkAndRunSetup();
+    debugLog('DOMContentLoaded 开始');
+    initSetupState();
+    renderSetupSteps();
+
+    // === 步骤 1: 语言检测 ===
+    await runStep('lang', async () => {
+        initLanguage();
+        debugLog('语言检测完成');
+    });
+
+    // === 步骤 2: 主题 ===
+    await runStep('theme', async () => {
+        initTheme();
+        debugLog('主题加载完成');
+    });
+
+    // === 步骤 3: 配置恢复 ===
+    await runStep('config', async () => {
+        try {
+            var config = await window.__TAURI__.core.invoke('load_config');
+            if (config && config.llama_path) {
+                localStorage.setItem('launcher-llama-path', config.llama_path);
+                if (config.port) localStorage.setItem('launcher-port', config.port);
+                if (config.ctx_size) localStorage.setItem('launcher-ctx-size', String(config.ctx_size));
+            }
+        } catch (e) {
+            // 首次运行，无配置文件，正常
+        }
+    });
+
+    // === 步骤 4: 硬件检测 + 后端同步 ===
+    await runStep('backend', async () => {
+        await checkAndRunSetup();
+    });
+
+    // === 步骤 5: llama.cpp 版本校验 ===
+    await runStep('llama', async () => {
+        await checkLlamaVersion();
+    });
+
+    // === 步骤 6: Python 检测 ===
+    await runStep('python', async () => {
+        var installed = await window.__TAURI__.core.invoke('check_python_installed');
+        if (!installed) {
+            updateStepUI('python', 'running', '未安装，正在安装…');
+            await window.__TAURI__.core.invoke('install_python');
+        }
+    });
+
+    // === 步骤 7: pip 检测 ===
+    await runStep('pip', async () => {
+        var installed = await window.__TAURI__.core.invoke('check_pip_installed');
+        if (!installed) {
+            updateStepUI('pip', 'running', '未安装，正在安装…');
+            await window.__TAURI__.core.invoke('install_pip');
+        }
+    });
+
+    // === 步骤 8: ModelScope 检测 ===
+    await runStep('mscope', async () => {
+        await checkAndInstallModelscope();
+    });
+
+    hideSetupOverlay();
+    debugLog('所有环境检测完成');
+
     loadSettings();
     initNavigation();
     initLaunchPage();
-
-    // 启动后定期检查服务状态
     startStatusPolling();
 
-    // 监听 llama-server 的 stderr/stdout 事件
+    // 延迟 5 秒检查更新
+    setTimeout(checkUpdate, 5000);
+
     listenServerOutput();
+    debugLog('DOMContentLoaded 全部完成');
 });
+
+/// 诊断日志：写入 Rust 端日志文件
+async function debugLog(msg) {
+    if (window.__TAURI__?.core?.invoke) {
+        try { await window.__TAURI__.core.invoke('frontend_log', { message: msg }); } catch(e) {}
+    }
+    console.log('[SAL]', msg);
+}
 
 async function listenServerOutput() {
     if (!window.__TAURI__?.event?.listen) return;
@@ -54,39 +366,56 @@ async function listenServerOutput() {
 // ============================================================
 
 async function checkAndRunSetup() {
-    console.log('[setup] checkAndRunSetup 开始');
-    // 快速跳过：如果已经配置过 llama.cpp 路径，直接跳过首次安装
-    var existingPath = localStorage.getItem('launcher-llama-path');
-    console.log('[setup] localStorage launcher-llama-path:', existingPath);
-    if (existingPath) {
-        console.log('[setup] 已有配置，跳过安装检查，后台检查版本');
-        hideSetupOverlay();
-        checkLlamaVersion();
-        return;
-    }
+    debugLog('checkAndRunSetup 开始');
 
-    // localStorage 为空，先尝试从 Rust 端 config.json 恢复
-    console.log('[setup] localStorage 无配置，尝试从 Rust 端恢复...');
+    // 先尝试从 Rust 端 config.json 恢复配置
+    debugLog('尝试从 Rust 端恢复配置...');
     try {
         var config = await window.__TAURI__.core.invoke('load_config');
+        debugLog('load_config 返回: ' + JSON.stringify(config));
         if (config && config.llama_path) {
-            console.log('[setup] 从 config.json 恢复了 llama_path:', config.llama_path);
+            debugLog('从 config.json 恢复了 llama_path: ' + config.llama_path);
             localStorage.setItem('launcher-llama-path', config.llama_path);
             if (config.port) localStorage.setItem('launcher-port', config.port);
             if (config.ctx_size) localStorage.setItem('launcher-ctx-size', String(config.ctx_size));
+        }
+    } catch (e) {
+        debugLog('load_config 失败 (可能首次安装): ' + e);
+    }
+
+    // 调用后端自动同步：检测硬件 → 自动解压匹配的后端
+    // 如果后端已安装且匹配，直接返回 "synced"
+    debugLog('调用 check_and_sync_backend...');
+    try {
+        var syncResult = await window.__TAURI__.core.invoke('check_and_sync_backend');
+        debugLog('check_and_sync_backend 返回: ' + syncResult);
+
+        if (syncResult === 'synced' || syncResult === 'ok') {
+            // 后端已就绪，无需操作
             hideSetupOverlay();
+            // 重新加载配置（同步后 config.json 已更新）
+            try {
+                var config2 = await window.__TAURI__.core.invoke('load_config');
+                if (config2 && config2.llama_path && !localStorage.getItem('launcher-llama-path')) {
+                    localStorage.setItem('launcher-llama-path', config2.llama_path);
+                    if (config2.port) localStorage.setItem('launcher-port', config2.port);
+                    if (config2.ctx_size) localStorage.setItem('launcher-ctx-size', String(config2.ctx_size));
+                }
+            } catch(e) {}
             checkLlamaVersion();
             return;
         }
     } catch (e) {
-        console.warn('[setup] Rust 端配置加载失败:', e);
+        debugLog('check_and_sync_backend 失败: ' + e);
+        // 回退到旧流程
     }
 
+    // === 旧版回退流程：检查 setup_needed ===
     try {
         // 先检查是否已安装（仅文件存在性检查，不触发 GPU 检测）
-        console.log('[setup] 调用 check_setup_needed...');
+        debugLog('调用 check_setup_needed...');
         var needsSetup = await window.__TAURI__.core.invoke('check_setup_needed');
-        console.log('[setup] needsSetup:', needsSetup);
+        debugLog('needsSetup: ' + needsSetup);
         if (!needsSetup) {
             console.log('[setup] 已安装，跳过检测');
             hideSetupOverlay();
@@ -233,10 +562,12 @@ async function checkAndInstallModelscope() {
 
         await window.__TAURI__.core.invoke('install_modelscope');
         addConsoleLine('success', 'modelscope SDK 安装完成');
+        hideSetupOverlay();
 
     } catch (e) {
         console.warn('modelscope 安装失败（可手动安装）:', e);
         addConsoleLine('warn', `modelscope 安装失败: ${e}`);
+        hideSetupOverlay();
     }
 }
 
@@ -323,6 +654,7 @@ function switchPage(pageId) {
         if (pageId === 'models') refreshModels();
         if (pageId === 'launch') { refreshLaunchModelList(); loadRunningModels(); }
         if (pageId === 'chat') { updateLiteInputState(); }
+        if (pageId === 'sessions') { loadSessionList(); }
     } else {
         // 默认回到首页
         document.querySelector('.nav-item[data-page="home"]')?.classList.add('active');
@@ -361,6 +693,18 @@ async function pollServerStatus() {
         var models = await window.__TAURI__.core.invoke('list_running_models');
         var running = models && models.length > 0;
         var modelNames = running ? models.map(function(m) { return m.name; }).join(', ') : '';
+        var totalVram = running ? models.reduce(function(sum, m) { return sum + (m.vram_mb || 0); }, 0) : 0;
+
+        // 如果无模型运行，检查服务器是否正在加载（HTTP 503 = Loading model）
+        var loading = false;
+        if (!running) {
+            try {
+                var healthResp = await fetch('http://127.0.0.1:' + port + '/health', { method: 'GET', signal: AbortSignal.timeout(3000) });
+                loading = healthResp.status === 503;
+            } catch(e) {
+                loading = false;
+            }
+        }
 
         var dot = document.getElementById('serverDot');
         var label = document.getElementById('serverLabel');
@@ -371,19 +715,32 @@ async function pollServerStatus() {
         var apiUrl = document.getElementById('apiUrl');
         var badge = document.getElementById('serverStatusBadge');
 
-        if (dot) dot.className = running ? 'engine-dot online' : 'engine-dot offline';
-        if (label) label.textContent = running ? '运行中' : '未启动';
-        if (detail) detail.textContent = running
-            ? '端口 ' + port + ' · 运行中 · ' + modelNames
-            : '端口 ' + port + ' · 已停止';
-        if (startBtn) startBtn.style.display = running ? 'none' : '';
-        if (stopBtn) stopBtn.style.display = running ? '' : 'none';
-        if (badge) badge.textContent = running ? '● 已连接' : '● 已断开';
+        var statusClass = running ? 'online' : (loading ? 'loading' : 'offline');
+        var statusText = running ? _t('server.running') : (loading ? _t('server.loading') : _t('server.stopped'));
+        var detailText = running
+            ? _tp('server.models', { count: models.length, names: modelNames })
+            : (loading ? _t('server.loading_detail') : _tp('server.port_stopped', { port: port }));
 
-        // 显示 API 端点
+        if (dot) dot.className = 'engine-dot ' + statusClass;
+        if (label) label.textContent = statusText;
+        if (detail) detail.textContent = detailText;
+        if (startBtn) startBtn.style.display = (running || loading) ? 'none' : '';
+        if (stopBtn) stopBtn.style.display = running ? '' : 'none';
+        if (badge) badge.textContent = running ? _t('server.connected') : (loading ? _t('server.loading_badge') : _t('server.disconnected'));
+
+        // 显示 API 端点（多模型时显示多个）
         if (running && apiEndpoint && apiUrl) {
             apiEndpoint.style.display = 'block';
-            apiUrl.innerHTML = `原生 /chat → http://localhost:${port}/chat<br>OpenAI → http://localhost:${port}/v1/chat/completions`;
+            if (models.length === 1) {
+                var p = models[0].proxy_port;
+                apiUrl.innerHTML = '原生 /chat → <code>http://localhost:' + p + '/chat</code><br>OpenAI → <code>http://localhost:' + p + '/v1/chat/completions</code>';
+            } else {
+                var html = '<div style="margin-bottom:4px;">多模型端点：</div>';
+                models.forEach(function(m) {
+                    html += '<div style="font-size:10px;margin-bottom:2px;">[' + m.name + '] 原生 → <code>http://localhost:' + m.proxy_port + '/chat</code> · OpenAI → <code>http://localhost:' + m.proxy_port + '/v1/chat/completions</code></div>';
+                });
+                apiUrl.innerHTML = html;
+            }
         } else if (apiEndpoint) {
             apiEndpoint.style.display = 'none';
         }
@@ -397,14 +754,16 @@ async function pollServerStatus() {
         const homeApiEndpoint = document.getElementById('homeApiEndpoint');
         const homeApiUrl = document.getElementById('homeApiUrl');
 
-        if (homeDot) homeDot.className = running ? 'status-dot online' : 'status-dot offline';
-        if (homeLabel) homeLabel.textContent = running ? '服务运行中' : '服务未启动';
-        if (homeDetail) homeDetail.textContent = `端口 ${port}`;
-        if (homeStartBtn) homeStartBtn.textContent = running ? '管理服务' : '启动服务';
+        if (homeDot) homeDot.className = 'status-dot ' + statusClass;
+        if (homeLabel) homeLabel.textContent = running ? _t('server.home_running') : (loading ? _t('server.home_loading') : _t('server.home_stopped'));
+        if (homeDetail) homeDetail.innerHTML = running
+            ? models.length + ' 个模型 · ' + (totalVram > 0 ? '显存 ' + formatVram(totalVram) : '')
+            : _tp('home.port', { port: port });
+        if (homeStartBtn) homeStartBtn.textContent = running ? _t('server.home_manage') : (loading ? _t('server.home_loading_btn') : _t('server.home_start'));
         if (homeStopBtn) homeStopBtn.style.display = running ? '' : 'none';
         if (badge) {
-            badge.textContent = running ? '● 已连接' : '● 已断开';
-            badge.className = `title-subtitle ${running ? 'online' : 'offline'}`;
+            badge.textContent = running ? _t('server.connected') : (loading ? _t('server.loading_badge') : _t('server.disconnected'));
+            badge.className = 'title-subtitle ' + (running ? 'online' : (loading ? 'loading' : 'offline'));
         }
         if (running && homeApiEndpoint && homeApiUrl) {
             homeApiEndpoint.style.display = 'block';
@@ -519,10 +878,75 @@ function refreshLaunchModelList() {
             }).join('');
         }
         window._modelCache = models;
-        document.getElementById('homeModelCount').textContent = models.length;
     }).catch(function() {
         container.innerHTML = '<div class="model-check-empty">加载失败</div>';
     });
+}
+
+var _importFilePath = null;
+var _importFileDefaultName = null;
+
+/// 打开文件选择器导入 GGUF 模型
+function importModel() {
+    var input = document.getElementById('importFileInput');
+    input.value = '';
+    input.onchange = function(e) {
+        var file = e.target.files?.[0];
+        if (!file) return;
+
+        var srcPath = file.path || file.name;
+        if (!srcPath) { alert('无法获取文件路径'); return; }
+
+        var modelsDir = localStorage.getItem('launcher-models-dir') || '';
+        if (!modelsDir) {
+            alert('请先在设置中配置模型目录路径');
+            switchPage('settings');
+            return;
+        }
+
+        // 提取文件名作为默认名称
+        var fname = srcPath.split(/[\\/]/).pop() || 'model.gguf';
+        var defaultName = fname.replace(/\.gguf$/i, '');
+
+        _importFilePath = srcPath;
+        _importFileDefaultName = defaultName;
+
+        document.getElementById('importFileInfo').textContent = '选中文件: ' + fname;
+        document.getElementById('importNameInput').value = defaultName;
+        document.getElementById('importOverlay').classList.remove('hidden');
+    };
+    input.click();
+}
+
+/// 取消导入
+function cancelImport() {
+    document.getElementById('importOverlay').classList.add('hidden');
+    _importFilePath = null;
+    _importFileDefaultName = null;
+}
+
+/// 确认导入
+async function confirmImport() {
+    var name = document.getElementById('importNameInput').value.trim();
+    if (!name) { alert('请输入模型名称'); return; }
+    if (name.match(/[<>:"/\\|?*]/)) { alert('名称包含非法字符'); return; }
+
+    document.getElementById('importOverlay').classList.add('hidden');
+
+    var modelsDir = localStorage.getItem('launcher-models-dir') || '';
+    try {
+        var result = await window.__TAURI__.core.invoke('import_model_file', {
+            srcPath: _importFilePath,
+            modelsDir: modelsDir,
+            modelName: name,
+        });
+        _importFilePath = null;
+        _importFileDefaultName = null;
+        refreshModels();
+    } catch (e) {
+        alert('导入失败: ' + e);
+        _importFilePath = null;
+    }
 }
 
 async function refreshModels() {
@@ -537,7 +961,6 @@ async function refreshModels() {
 
     try {
         const models = await window.__TAURI__.core.invoke('list_models', { modelsDir });
-        document.getElementById('homeModelCount').textContent = models.length;
 
         if (models.length === 0) {
             list.innerHTML = '<div class="model-empty"><p>未找到 GGUF 模型文件<br><small>请将 .gguf 文件放入模型目录</small></p></div>';
@@ -759,14 +1182,42 @@ async function cancelDownload() {
     }
 }
 
+// ============================================================
+// 自定义确认对话框
+// ============================================================
+
+var _confirmResolve = null;
+
+function showConfirmDialog(message) {
+    return new Promise(function(resolve) {
+        _confirmResolve = resolve;
+        document.getElementById('confirmMessage').textContent = message;
+        document.getElementById('confirmOverlay').classList.remove('hidden');
+    });
+}
+
+function closeConfirmDialog(confirmed) {
+    document.getElementById('confirmOverlay').classList.add('hidden');
+    if (_confirmResolve) {
+        _confirmResolve(confirmed);
+        _confirmResolve = null;
+    }
+}
+
 /// 显示下载弹层
 let _downloadUnlisten = null;
 let _downloadPulseTimer = null;
+let _lastModelId = null;
 
 function showDownloadOverlay(modelId) {
+    _lastModelId = modelId;
     document.getElementById('downloadTitle').textContent = '正在下载模型';
     document.getElementById('downloadModelInfo').textContent = modelId;
     document.getElementById('downloadOverlay').classList.remove('hidden');
+
+    // 重置按钮状态
+    document.getElementById('cancelDownloadBtn').classList.remove('hidden');
+    document.getElementById('retryDownloadBtn').classList.add('hidden');
 
     // 取消之前的监听和脉冲定时器
     if (_downloadUnlisten) { _downloadUnlisten(); _downloadUnlisten = null; }
@@ -787,15 +1238,46 @@ function showDownloadOverlay(modelId) {
         window.__TAURI__.event.listen('download-progress', (event) => {
             var data = event.payload;
             updateDownloadProgress(data.progress, data.message);
+
             if (data.status === 'completed') {
-                updateDownloadProgress(100, '下载完成！');
+                updateDownloadProgress(100, data.message || '下载完成！');
+                document.getElementById('cancelDownloadBtn').classList.add('hidden');
+                document.getElementById('retryDownloadBtn').classList.add('hidden');
                 refreshModels();
-                setTimeout(function() { hideDownloadOverlay(); }, 2000);
+                setTimeout(function() { hideDownloadOverlay(); }, 3000);
             } else if (data.status === 'error') {
                 updateDownloadProgress(0, '⚠️ ' + (data.message || '下载失败'));
-                setTimeout(function() { hideDownloadOverlay(); }, 5000);
+                document.getElementById('cancelDownloadBtn').classList.add('hidden');
+                document.getElementById('retryDownloadBtn').classList.remove('hidden');
+            } else if (data.status === 'verifying') {
+                updateDownloadProgress(99, data.message || '校验中...');
+            } else if (data.status === 'retrying') {
+                updateDownloadProgress(0, data.message || '重试中...');
+                document.getElementById('cancelDownloadBtn').classList.remove('hidden');
+                document.getElementById('retryDownloadBtn').classList.add('hidden');
+            } else if (data.status === 'downloading') {
+                // 取消脉冲定时器，用真实进度
+                if (_downloadPulseTimer) {
+                    clearInterval(_downloadPulseTimer);
+                    _downloadPulseTimer = null;
+                }
             }
         }).then(function(u) { _downloadUnlisten = u; });
+    }
+}
+
+/// 重试下载
+async function retryDownload() {
+    document.getElementById('cancelDownloadBtn').classList.remove('hidden');
+    document.getElementById('retryDownloadBtn').classList.add('hidden');
+    updateDownloadProgress(0, '正在重试...');
+
+    try {
+        await window.__TAURI__.core.invoke('retry_download');
+    } catch (e) {
+        updateDownloadProgress(0, '⚠️ 重试启动失败: ' + e);
+        document.getElementById('cancelDownloadBtn').classList.add('hidden');
+        document.getElementById('retryDownloadBtn').classList.remove('hidden');
     }
 }
 
@@ -873,7 +1355,12 @@ async function loadOfficialModels() {
                                 <span class="og-count">${items.length} 个模型</span>
                             </div>
                             <div class="og-body" id="${groupId}">
-                                ${items.map(m => {
+                                ${items.sort((a, b) => {
+                                    // 按参数大小排序（小 ➝ 大）
+                                    var pa = extractParamSize(a.name);
+                                    var pb = extractParamSize(b.name);
+                                    return pa - pb;
+                                }).map(m => {
                                     const defaultQuant = m.default_quant || 'q4_K_M';
                                     const quants = (m.quant || []).map(q => {
                                         const isDefault = q === defaultQuant;
@@ -903,6 +1390,14 @@ async function loadOfficialModels() {
     } catch (e) {
         list.innerHTML = `<div class="official-loading" style="color:var(--danger)">加载失败: ${e}</div>`;
     }
+}
+
+/// 从模型名称中提取参数大小（7B → 7, 1.5B → 1.5, 0.5B → 0.5）
+function extractParamSize(name) {
+    if (!name) return 999;
+    var m = name.match(/(\d+\.?\d*)\s*[Bb]/);
+    if (m) return parseFloat(m[1]);
+    return 999;
 }
 
 /// 切换官方模型分组的展开/收起（带平滑高度动画）
@@ -982,6 +1477,7 @@ function selectOfficialQuant(el) {
 /// 获取当前选中的量化版本
 function getSelectedQuant(modelIdx) {
     const chips = document.querySelectorAll(`.quant-chip[data-model="${modelIdx}"]`);
+    if (chips.length === 0) return ''; // 没有量化选项时不匹配任何 quant
     const active = Array.from(chips).find(c => c.classList.contains('active'));
     return active ? active.dataset.quant : 'q4_K_M';
 }
@@ -1010,8 +1506,29 @@ async function downloadOfficialModel(modelIdx) {
 
     // 构建 include 模式（仅文件名通配，不带仓库路径前缀）
     const selectedQuant = getSelectedQuant(modelIdx);
+    const hasQuantOption = m.quant && m.quant.length > 0;
+    const hasInclude = m.include ? true : false;
     const inc = m.include || '';
-    const includePattern = selectedQuant ? `*${selectedQuant}*.gguf` : (inc || '*.gguf');
+    let includePattern = null;
+    if (selectedQuant) {
+        includePattern = `*${selectedQuant}*.gguf`;
+    } else if (hasQuantOption) {
+        includePattern = inc || '*.gguf';
+    } else if (hasInclude) {
+        // GGUF 仓库但无量化选项（如 Qwen3-0.6B 只有 Q8_0）
+        includePattern = inc;
+    } else {
+        // 无量化也无可选 include（FP16 原始模型如 DeepSeek Coder）→ 下载全部
+        includePattern = null;
+    }
+
+    // 非 GGUF 模型 → 弹窗确认
+    if (includePattern === null) {
+        var confirmed = await showConfirmDialog(
+            '您下载的模型无 GGUF 格式，可能需要进行自行格式转换，确认下载？'
+        );
+        if (!confirmed) return;
+    }
 
     showDownloadOverlay(m.model_id);
 
@@ -1133,11 +1650,26 @@ function loadSettings() {
         if (el) el.value = val;
     });
 
+    // 加载语言设置
+    const langSelect = document.getElementById('langSelect');
+    if (langSelect) langSelect.value = getCurrentLang();
+
     // 加载退出时卸载选项
     const autoUnload = localStorage.getItem('launcher-auto-unload');
     const autoUnloadEl = document.getElementById('autoUnloadModels');
     if (autoUnloadEl) autoUnloadEl.checked = autoUnload !== 'false';  // 默认 true
 }
+
+function onLangChange(value) {
+    setLanguage(value);
+    // 刷新 UI 中的动态文本
+    updateServerStatusUI('stopped');
+    loadSessionList();
+    updateCtxDisplay();
+}
+
+// 暴露到全局供 HTML onclick 调用
+window.onLangChange = onLangChange;
 
 function saveSettings() {
     const data = {
@@ -1225,6 +1757,11 @@ function marked(text) {
 let _liteMessages = [];
 let _liteAbortController = null;
 let _liteAccTokens = 0;
+let _liteSessionSummary = '';   // 当前会话的自动总结
+let _ctx80Triggered = false;    // 80% 阈值是否已触发过
+let _pendingSummary = false;    // 消息处理中延迟触发的总结
+let isLiteProcessing = false;   // 是否正在处理消息
+const MAX_CTX_CHARS = 4096;     // 发送给 API 的总字符数硬上限
 
 function getLiteTotalCtx() {
     return parseInt(document.getElementById('launchCtx')?.value
@@ -1253,6 +1790,37 @@ function getLitePort() {
     return parseInt(document.getElementById('launchPort')?.value
         || localStorage.getItem('launcher-port')
         || '20000');
+}
+
+/// 清理模型输出中的 END token（仅从末尾剥离，不影响中间内容）
+/// EOS tokens by model family:
+///   ChatML (Qwen/DeepSeek/GLM/Yi): <|im_end|> <|im_start|>
+///   Llama: </s>
+///   Gemma: <end_of_turn> <eos>
+///   DeepSeek native:  ＜end＞
+function cleanResponseText(text) {
+    if (!text) return '';
+    // 只从字符串末尾反复剥离这些 token
+    const endTokens = [
+        '<|im_end|>', '<|im_start|>', '<|im_sep|>',
+        '<|assistant|>', '<|user|>', '<|system|>',
+        '</s>', '<s>',
+        '<end_of_turn>', '<eos>', '<bos>',
+    ];
+    // 从末尾循环剥离（允许堆叠，如 <|im_end|><|im_end|>）
+    let cleaned = text;
+    while (true) {
+        let found = false;
+        for (const t of endTokens) {
+            if (cleaned.endsWith(t)) {
+                cleaned = cleaned.slice(0, -t.length).trimEnd();
+                found = true;
+                break;
+            }
+        }
+        if (!found) break;
+    }
+    return cleaned.trim();
 }
 
 function isLiteServerRunning() {
@@ -1293,6 +1861,16 @@ function addLiteMessage(role, content) {
     return msgDiv;
 }
 
+/* ===== 深度思考文本框（CSS grid-template-rows 过渡驱动，同 Soul Agent） ===== */
+function animateThinkBlock(block, expand) {
+    if (expand) { block.classList.remove('collapsed'); }
+    else { block.classList.add('collapsed'); }
+}
+function collapseThinkBlock(block, toggle) {
+    animateThinkBlock(block, false);
+    if (toggle) toggle.classList.add('collapsed');
+}
+
 function showLiteTyping() {
     var container = document.getElementById('liteMessages');
     if (!container) return;
@@ -1311,6 +1889,101 @@ function removeLiteTyping() {
     if (el) el.remove();
 }
 
+// ============================================================
+// 自动总结功能（上下文监控 + 总结生成 + 总结注入）
+// ============================================================
+
+/// 估算当前上下文使用率（%）
+function calcContextPct() {
+    let totalChars = 0;
+    _liteMessages.forEach(function(m) { totalChars += (m.content || '').length; });
+    if (totalChars === 0) return 0;
+    var estimatedTokens = Math.round(totalChars / 2);
+    return Math.min(100, Math.round((estimatedTokens / getLiteTotalCtx()) * 100));
+}
+
+/// 检查上下文阈值并触发总结
+async function checkContextThreshold(pct) {
+    if (!_currentSessionId || _liteMessages.length === 0) return;
+
+    // 95%：强制触发总结
+    if (pct >= 95) {
+        await triggerSummary();
+        _liteAccTokens = 0;
+        return;
+    }
+
+    // 80%：自动总结（无提示）
+    if (pct >= 80 && !_ctx80Triggered) {
+        _ctx80Triggered = true;
+        if (isLiteProcessing) {
+            _pendingSummary = true;
+        } else {
+            await triggerSummary();
+            _liteAccTokens = 0;
+            _ctx80Triggered = false;
+        }
+    }
+}
+
+/// 生成对话总结
+async function triggerSummary() {
+    if (!_currentSessionId || _liteMessages.length === 0) return;
+    console.log('[summary] 正在生成对话总结...', _liteMessages.length, '条消息');
+
+    var port = parseInt(
+        document.getElementById('launchPort')?.value
+        || localStorage.getItem('launcher-port')
+        || '20000'
+    );
+
+    try {
+        // 构建总结请求：所有消息 + 总结提示词
+        var summaryMessages = _liteMessages.map(function(m) {
+            return { role: m.role === 'think' ? 'assistant' : m.role, content: m.content };
+        });
+        summaryMessages.push({
+            role: 'user',
+            content: _t('summary.prompt')
+        });
+
+        var summary = await window.__TAURI__.core.invoke('chat_non_streaming', {
+            port: port,
+            model: 'default',
+            messages: summaryMessages
+        });
+
+        if (!summary) {
+            console.warn('[summary] 返回为空');
+            return;
+        }
+
+        _liteSessionSummary = summary;
+        console.log('[summary] 总结完成:', summary.substring(0, 80));
+
+        // 持久化到磁盘
+        await window.__TAURI__.core.invoke('write_session_summary', {
+            sessionId: _currentSessionId,
+            summary: summary
+        });
+    } catch (e) {
+        console.warn('[summary] 生成失败:', e);
+    }
+}
+
+/// 加载会话总结
+async function loadSessionSummary(sessionId) {
+    try {
+        var summary = await window.__TAURI__.core.invoke('read_session_summary', {
+            sessionId: sessionId
+        });
+        _liteSessionSummary = summary || '';
+        if (summary) console.log('[summary] 已加载总结:', summary.substring(0, 60));
+    } catch (e) {
+        _liteSessionSummary = '';
+    }
+}
+
 async function sendLiteMessage() {
     var input = document.getElementById('userInput');
     var text = input?.value.trim();
@@ -1326,14 +1999,42 @@ async function sendLiteMessage() {
     addLiteMessage('user', text);
     showLiteTyping();
 
-    var port = getLitePort();
-    var multimodal = document.getElementById('liteMultimodal')?.checked || false;
+    var port = _liteModelPort || getLitePort();
+    var multimodal = _liteMultimodal;
     _liteAbortController = new AbortController();
+    isLiteProcessing = true;
+
+    // 构建消息数组：注入总结 + 裁剪上下文
+    var bodyMessages = [];
+    // 1. 如果有历史总结，作为 system 消息注入
+    if (_liteSessionSummary) {
+        bodyMessages.push({
+            role: 'system',
+            content: _tp('summary.inject', { summary: _liteSessionSummary })
+        });
+    }
+    // 2. 加入最近消息 + 当前消息，裁剪总长度
+    var recentCount = 6;  // 最近 6 条 + 当前用户消息
+    var msgs = _liteMessages.slice(-recentCount);
+    msgs.forEach(function(m) {
+        bodyMessages.push({ role: m.role === 'think' ? 'assistant' : m.role, content: m.content });
+    });
+    // 3. 裁剪 if 超 MAX_CTX_CHARS
+    var totalChars = bodyMessages.reduce(function(sum, m) { return sum + (m.content || '').length; }, 0);
+    if (totalChars > MAX_CTX_CHARS) {
+        // 从最旧的历史消息开始移除（跳过总结 system）
+        while (bodyMessages.length > 2 && totalChars > MAX_CTX_CHARS) {
+            var removeIdx = bodyMessages[0].role === 'system' ? 1 : 0;
+            var removed = bodyMessages.splice(removeIdx, 1)[0];
+            totalChars -= (removed.content || '').length;
+        }
+    }
 
     var body = {
-        model: 'default',
-        messages: _liteMessages.map(function(m) { return { role: m.role, content: m.content }; }),
+        model: _liteSelectedModel || 'default',
+        messages: bodyMessages,
         stream: true,
+        thinking: _liteThinking,
     };
     if (multimodal) {
         body.multimodal = true;
@@ -1347,40 +2048,101 @@ async function sendLiteMessage() {
     }
 
     try {
-        var resp = await fetch('http://127.0.0.1:' + port + '/v1/chat/completions', {
+        var resp = await fetch('http://127.0.0.1:' + port + '/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
             signal: _liteAbortController.signal,
         });
-        removeLiteTyping();
 
         if (!resp.ok) {
+            removeLiteTyping();
             var errText = await resp.text().catch(function() { return ''; });
-            addLiteMessage('system', '⚠️ API请求失败 (HTTP ' + resp.status + ')' + (errText ? ': ' + errText : ''));
+            addLiteMessage('system', _tp('chat.api_error', { status: resp.status, detail: errText ? ': ' + errText : '' }));
             _liteMessages.pop();
             return;
         }
 
-        // 创建流式消息气泡
-        var msgDiv = document.createElement('div');
-        msgDiv.className = 'chat-msg assistant streaming';
-        var bubble = document.createElement('div');
-        bubble.className = 'chat-bubble';
-        bubble.textContent = '';
-        var time = document.createElement('div');
-        time.className = 'chat-time';
-        msgDiv.appendChild(bubble);
-        msgDiv.appendChild(time);
-        document.getElementById('liteMessages').appendChild(msgDiv);
+        // 不在前面创建气泡，等第一个 Token 到达时才创建
+        var msgDiv = null;
+        var bubble = null;
+        var time = null;
 
         var reader = resp.body.getReader();
         var decoder = new TextDecoder();
         var fullContent = '';
+        var _liteThinkingContent = '';
         var _liteUsage = null;
+        var thinkUIReady = false;
+        var _liteThinkToggle, _liteThinkBlock, _liteThinkInner;
+        var _msgInitialized = false;  // 气泡是否已创建
+        var _lastTokenTime = Date.now();  // 上次收到 token 的时间
+        var _noOutputTimeout = 60000;     // 无任何输出时超时 60 秒
+        var _hasOutput = false;           // 是否已收到至少一个 token
+
+        /// 接收第一个 Token 时：移除打字动画 + 创建气泡
+        function initMsgBubble() {
+            if (_msgInitialized) return;
+            _msgInitialized = true;
+            removeLiteTyping();
+
+            msgDiv = document.createElement('div');
+            msgDiv.className = 'chat-msg assistant streaming';
+            bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            bubble.textContent = '';
+            time = document.createElement('div');
+            time.className = 'chat-time';
+            msgDiv.appendChild(bubble);
+            msgDiv.appendChild(time);
+            document.getElementById('liteMessages').appendChild(msgDiv);
+        }
+
+        // 辅助：实时创建/展开思考框
+        function ensureThinkUI() {
+            if (thinkUIReady) return;
+            if (!msgDiv) return;
+            thinkUIReady = true;
+            _liteThinkToggle = document.createElement('div');
+            _liteThinkToggle.className = 'think-toggle';
+            _liteThinkToggle.innerHTML = '<img class="think-icon" src="assets/sal-icon.png" width="14" height="14"> 思考过程';
+            _liteThinkToggle.onclick = function() {
+                var isColl = _liteThinkBlock.classList.contains('collapsed');
+                animateThinkBlock(_liteThinkBlock, isColl);
+                _liteThinkToggle.classList.toggle('collapsed', !isColl);
+            };
+
+            _liteThinkBlock = document.createElement('div');
+            _liteThinkBlock.className = 'think-block';
+            _liteThinkInner = document.createElement('div');
+            _liteThinkInner.className = 'think-inner';
+            _liteThinkBlock.appendChild(_liteThinkInner);
+
+            msgDiv.prepend(_liteThinkToggle, _liteThinkBlock);
+            document.getElementById('liteMessages').scrollTop = 1e9;
+        }
+
+        // 接收到第一个 Token 时
+        function onFirstToken() {
+            initMsgBubble();
+        }
 
         while (true) {
-            var result = await reader.read();
+            // 超时检测：Reader 阻塞时通过 race 实现超时
+            var timeoutMs = _hasOutput ? 15000 : _noOutputTimeout;
+            var readResult = await Promise.race([
+                reader.read().then(function(r) { return { type: 'data', result: r }; }),
+                new Promise(function(resolve) {
+                    setTimeout(function() { resolve({ type: 'timeout' }); }, timeoutMs);
+                })
+            ]);
+
+            if (readResult.type === 'timeout') {
+                soulLog('chat', `流超时(${timeoutMs}ms)：${_hasOutput ? '已输出无新数据' : '等待首次响应超时'}`);
+                break;  // 直接结束，已收到的内容保留显示
+            }
+
+            var result = readResult.result;
             if (result.done) break;
             var chunk = decoder.decode(result.value, { stream: true });
             var lines = chunk.split('\n');
@@ -1391,10 +2153,52 @@ async function sendLiteMessage() {
                 if (data === '[DONE]') continue;
                 try {
                     var json = JSON.parse(data);
-                    var delta = json?.choices?.[0]?.delta?.content;
+                    var delta = json?.choices?.[0]?.delta?.content || json?.content;
+                    var thinkField = json?.thinking;
+                    if (thinkField) {
+                        _lastTokenTime = Date.now();
+                        _hasOutput = true;
+                        onFirstToken();
+                        _liteThinkingContent += thinkField;
+                        ensureThinkUI();
+                        _liteThinkInner.textContent = _liteThinkingContent;
+                        document.getElementById('liteMessages').scrollTop = 1e9;
+                    }
                     if (delta) {
-                        fullContent += delta;
-                        bubble.textContent = fullContent;
+                        _lastTokenTime = Date.now();
+                        _hasOutput = true;
+                        onFirstToken();
+                        // 清理模型特殊 token（仅末尾）
+                        fullContent += cleanResponseText(delta);
+
+                        // 每次迭代重新解析 fullContent 中的 <think> 标签
+                        // 天然防重复：每次都是基于最新 fullContent 重新提取
+                        var ts = '<think>', te = '</think>';
+                        var si = fullContent.indexOf(ts);
+                        var ei = fullContent.indexOf(te);
+
+                        if (si >= 0) {
+                            // 有 <think> 标签
+                            var thinkEnd = ei >= 0 ? ei : fullContent.length;
+                            var extractedThink = fullContent.slice(si + ts.length, thinkEnd).trim();
+                            _liteThinkingContent = extractedThink;
+
+                            ensureThinkUI();
+                            _liteThinkInner.textContent = _liteThinkingContent;
+
+                            // bubble 只显示 <think> 之前 + </think> 之后
+                            var before = fullContent.slice(0, si);
+                            var after = ei >= 0 ? fullContent.slice(ei + te.length).replace(/^\n+/, '') : '';
+                            var bubbleShow = cleanResponseText(before + after);
+                            bubble.textContent = bubbleShow;
+                            // 思考期间如果 bubble 为空，隐藏以避免空气泡
+                            bubble.style.display = (ei >= 0 && bubbleShow) ? '' : 'none';
+                        } else {
+                            // 没有 <think> 标签，全部是正文
+                            bubble.style.display = '';
+                            bubble.textContent = cleanResponseText(fullContent);
+                        }
+
                         document.getElementById('liteMessages').scrollTop = 1e9;
                     }
                     if (json.usage) { _liteUsage = json.usage; }
@@ -1402,24 +2206,114 @@ async function sendLiteMessage() {
             }
         }
 
-        msgDiv.classList.remove('streaming');
-        bubble.innerHTML = marked(fullContent);
-        time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        if (fullContent) _liteMessages.push({ role: 'assistant', content: fullContent });
+        // 流结束
+        // 安全兜底：如果全程无 Token，移除打字动画
+        if (!_msgInitialized) {
+            removeLiteTyping();
+        }
+        if (!bubble) {
+            // 完全无输出，不做任何处理
+        } else {
+            bubble.style.display = ''; // 确保气泡可见
+            msgDiv.classList.remove('streaming');
+
+            // 提取纯正文（去掉 <think>...</think>）
+            var finalContent = cleanResponseText(fullContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim());
+            var finalThinking = _liteThinkingContent;
+            if (!finalThinking) {
+                var split = splitLiteThinkContent(fullContent);
+                finalThinking = split.thinking;
+                finalContent = split.content || fullContent;
+            }
+
+            if (thinkUIReady) {
+                setTimeout(function() {
+                    _liteThinkBlock.classList.add('collapsed');
+                    _liteThinkToggle.classList.add('collapsed');
+                }, 600);
+            }
+
+            if (finalContent) {
+                bubble.innerHTML = marked(finalContent);
+            } else if (fullContent) {
+                bubble.innerHTML = marked(cleanResponseText(fullContent));
+            } else {
+                bubble.remove();
+            }
+            time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        }
+        if (fullContent) {
+            _liteMessages.push({ role: 'assistant', content: finalContent || fullContent });
+            if (finalThinking) {
+                _liteMessages.push({ role: 'think', content: finalThinking });
+            }
+            // 保存到当前会话
+            if (_currentSessionId) {
+                window.__TAURI__.core.invoke('save_message', { sessionId: _currentSessionId, role: 'user', content: text }).catch(function(){});
+                window.__TAURI__.core.invoke('save_message', { sessionId: _currentSessionId, role: 'assistant', content: finalContent || fullContent }).catch(function(){});
+                if (finalThinking) {
+                    window.__TAURI__.core.invoke('save_message', { sessionId: _currentSessionId, role: 'think', content: finalThinking }).catch(function(){});
+                }
+            }
+        }
         if (_liteUsage && _liteUsage.total_tokens) {
             _liteAccTokens = (_liteAccTokens || 0) + _liteUsage.total_tokens;
             updateLiteCtx();
         }
 
+        // 检查上下文阈值，触发自动总结
+        var ctxPct = calcContextPct();
+        await checkContextThreshold(ctxPct);
+
     } catch (e) {
         removeLiteTyping();
         if (e.name === 'AbortError') return;
-        addLiteMessage('system', '⚠️ 网络请求失败: ' + e.message);
+        addLiteMessage('system', _tp('chat.network_error', { msg: e.message }));
         _liteMessages.pop();
     } finally {
         _liteAbortController = null;
+        isLiteProcessing = false;
         updateLiteInputState();
+        // 处理延迟总结
+        if (_pendingSummary) {
+            _pendingSummary = false;
+            _ctx80Triggered = false;
+            await triggerSummary();
+        }
     }
+}
+
+/** 深度思考分离：从原生 /completion 内容中尝试分离思考部分（Qwen3 等模型） */
+function splitLiteThinkContent(raw) {
+    var text = raw;
+    // 去掉 "reasoning\n" 前缀（Qwen3 格式）
+    if (text.startsWith('reasoning\n')) {
+        text = text.slice('reasoning\n'.length);
+    }
+    // 找第一个 \n\n 作为思考/回答分界
+    var idx = text.indexOf('\n\n');
+    if (idx > 0 && idx < text.length - 2) {
+        var thinking = text.slice(0, idx).trim();
+        var content = text.slice(idx + 2).trim();
+        if (thinking && content) {
+            return { thinking: thinking, content: content };
+        }
+    }
+    // 如果内容较短，不分离
+    if (text.length < 20) return { thinking: '', content: raw };
+    // 尝试用中文/英文句号分界
+    var dots = ['. ', '。', '！', '？', '!\n', '？\n', '。\n'];
+    for (var i = 0; i < dots.length; i++) {
+        var di = text.indexOf(dots[i]);
+        if (di > 10 && di < text.length / 2) {
+            var thinking = text.slice(0, di + 1).trim();
+            var content = text.slice(di + 1).trim();
+            if (thinking && content) {
+                return { thinking: thinking, content: content };
+            }
+        }
+    }
+    return { thinking: '', content: raw };
 }
 
 function clearChat() {
@@ -1454,14 +2348,134 @@ document.addEventListener('DOMContentLoaded', function() {
             input.style.height = Math.min(input.scrollHeight, 200) + 'px';
         });
     }
+    // 初始化深度思考开关（照搬 Soul Agent 的 360° 旋转动画）
+    setupLiteThinkingToggle();
+    // 初始化工具调用开关
+    setupLiteMultimodalToggle();
+    // 初始化模型快速切换
+    initLiteModelQuickSwitch();
     setInterval(updateLiteInputState, 2000);
     updateLiteCtx();
     setInterval(updateLiteCtx, 10000);
+    // 定期同步模型列表
+    setInterval(syncLiteModelQuickSwitch, 10000);
 });
 
-// ============================================================
-// 已启动模型管理
-// ============================================================
+// ===== 深度思考 & 多模态开关 =====
+var _liteThinking = true;   // 深度思考默认开启
+var _liteMultimodal = false; // 多模态默认关闭
+
+function setupLiteThinkingToggle() {
+    const bar = document.getElementById('liteThinkToggle');
+    const icon = bar ? bar.querySelector('.tgl-icon') : null;
+    if (!bar || !icon) return;
+
+    bar.classList.toggle('active', _liteThinking);
+
+    bar.onclick = () => {
+        const newActive = !bar.classList.contains('active');
+        // 每次点击从 0° 转到 360°（通过瞬间复位 + RAF 触发新过渡）
+        icon.style.transition = 'none';
+        icon.style.transform = 'rotate(0deg)';
+        void icon.offsetHeight; // 强制回流确保复位生效
+        requestAnimationFrame(() => {
+            icon.style.transition = 'transform 0.3s ease';
+            icon.style.transform = 'rotate(360deg)';
+        });
+        bar.classList.toggle('active', newActive);
+        _liteThinking = newActive;
+    };
+}
+
+function setupLiteMultimodalToggle() {
+    const bar = document.getElementById('liteMultimodalToggle');
+    const icon = bar ? bar.querySelector('.tgl-icon') : null;
+    if (!bar || !icon) return;
+
+    bar.classList.toggle('active', _liteMultimodal);
+
+    bar.onclick = () => {
+        const newActive = !bar.classList.contains('active');
+        icon.style.transition = 'transform 0.15s ease';
+        icon.style.transform = 'scale(0.7)';
+
+        setTimeout(() => {
+            icon.style.transition = 'none';
+            icon.style.transform = 'scale(1)';
+            bar.classList.toggle('active', newActive);
+            _liteMultimodal = newActive;
+
+            requestAnimationFrame(() => {
+                icon.style.transition = 'transform 0.15s ease';
+            });
+        }, 150);
+    };
+}
+
+// ===== SA Lite 模型快速切换（与运行模型同步） =====
+var _liteSelectedModel = 'default';
+var _liteModelPort = null; // 当前选中模型的 proxy 端口
+
+function initLiteModelQuickSwitch() {
+    const mqs = document.getElementById('liteModelQuickSwitch');
+    const dropdown = document.getElementById('liteMqsDropdown');
+    if (!mqs || !dropdown) return;
+
+    mqs.onclick = (e) => {
+        e.stopPropagation();
+        const isOpen = dropdown.classList.contains('open');
+        document.querySelectorAll('.mqs-dropdown.open').forEach(d => d.classList.remove('open'));
+        if (!isOpen) {
+            syncLiteModelQuickSwitch();
+            dropdown.classList.add('open');
+        }
+    };
+
+    document.addEventListener('click', () => { dropdown.classList.remove('open'); });
+}
+
+async function syncLiteModelQuickSwitch() {
+    const label = document.getElementById('liteMqsLabel');
+    const dropdown = document.getElementById('liteMqsDropdown');
+    if (!label || !dropdown) return;
+
+    try {
+        var models = await window.__TAURI__.core.invoke('list_running_models');
+        if (models && models.length > 0) {
+            // 默认选择第一个运行模型
+            if (_liteSelectedModel === 'default' || !models.some(function(m) { return m.name === _liteSelectedModel; })) {
+                _liteSelectedModel = models[0].name;
+            }
+            label.textContent = _liteSelectedModel;
+
+            // 更新端口映射
+            var selected = models.find(function(m) { return m.name === _liteSelectedModel; });
+            _liteModelPort = selected ? selected.proxy_port : null;
+
+            dropdown.innerHTML = models.map(function(m) {
+                var active = m.name === _liteSelectedModel ? ' active' : '';
+                return '<div class="mqs-option' + active + '" data-value="' + m.name + '" data-port="' + m.proxy_port + '" data-label="' + m.name + '">' + m.name + '</div>';
+            }).join('');
+
+            // 绑定选项点击：更新端口
+            dropdown.querySelectorAll('.mqs-option').forEach(function(opt) {
+                opt.onclick = function(ev) {
+                    ev.stopPropagation();
+                    _liteSelectedModel = this.dataset.value;
+                    _liteModelPort = parseInt(this.dataset.port);
+                    document.getElementById('liteMqsLabel').textContent = this.dataset.label || this.dataset.value;
+                    dropdown.classList.remove('open');
+                };
+            });
+        } else {
+            label.textContent = '未启动';
+            dropdown.innerHTML = '<div class="mqs-option" style="color:var(--text-tertiary);cursor:default;">无运行模型</div>';
+            _liteModelPort = null;
+        }
+    } catch (e) {
+        console.warn('同步模型列表失败:', e);
+    }
+}
 
 var _selectedUnloadModels = {};
 
@@ -1471,22 +2485,52 @@ async function loadRunningModels() {
         var container = document.getElementById('runningModelsList');
         var empty = document.getElementById('noRunningModels');
         var unloadBtn = document.getElementById('unloadSelectedBtn');
+        var card = document.getElementById('runningModelsCard');
         if (!models || models.length === 0) {
             if (empty) empty.style.display = 'block';
             if (container) container.style.display = 'none';
-            if (unloadBtn) unloadBtn.style.display = 'none'; return;
+            if (unloadBtn) unloadBtn.style.display = 'none';
+            if (card) card.style.display = 'none';
+            return;
         }
+        if (card) card.style.display = 'block';
         if (empty) empty.style.display = 'none';
         if (container) container.style.display = 'block';
         if (unloadBtn) unloadBtn.style.display = Object.keys(_selectedUnloadModels).length > 0 ? 'inline-flex' : 'none';
-        container.innerHTML = '';
+
+        // 计算总显存
+        var totalVram = 0;
+        models.forEach(function(m) { totalVram += m.vram_mb || 0; });
+
+        container.innerHTML = '<div class="rm-summary">' +
+            '<span><strong>' + models.length + '</strong> 个模型运行中</span>' +
+            (totalVram > 0 ? '<span class="rm-vram-total">显存: <strong>' + formatVram(totalVram) + '</strong></span>' : '') +
+            '</div>';
+
         models.forEach(function(m) {
             var row = document.createElement('div');
             row.className = 'running-model-row';
-            row.innerHTML = '<label class="rm-checkbox"><input type="checkbox" data-name="' + m.name + '" onchange="toggleUnloadModel(this)"><span class="rm-checkmark"></span></label><div class="rm-info"><div class="rm-name">' + m.name + '</div><div class="rm-meta">端口 ' + m.proxy_port + ' · ' + m.ctx + 'K · ' + m.started_at + ' · PID ' + m.pid + '</div></div><button class="btn btn-sm rm-unload" onclick="unloadSingleModel(\'' + m.name.replace(/'/g,"\\'") + '\')">卸载</button>';
+            var vramText = m.vram_mb > 0 ? formatVram(m.vram_mb) : '—';
+            var statusClass = m.status === 'running' ? 'rm-dot-online' : 'rm-dot-offline';
+            var statusText = m.status === 'running' ? '运行中' : '已停止';
+            row.innerHTML =
+                '<label class="rm-checkbox"><input type="checkbox" data-name="' + m.name.replace(/"/g,'&quot;') + '" onchange="toggleUnloadModel(this)"><span class="rm-checkmark"></span></label>' +
+                '<div class="rm-info">' +
+                    '<div class="rm-name"><span class="rm-status-dot ' + statusClass + '"></span>' + m.name +
+                    ' <span class="rm-mode-badge ' + (m.persistent ? 'badge-persistent' : 'badge-standby') + '">' + (m.persistent ? '常驻' : '待机') + '</span>' +
+                    '</div>' +
+                    '<div class="rm-meta">端口 <strong>' + m.proxy_port + '</strong> · 上下文 ' + m.ctx + 'K · PID ' + m.pid + ' · ' + m.started_at + '</div>' +
+                '</div>' +
+                '<div class="rm-vram">' + vramText + '</div>' +
+                '<button class="btn btn-sm rm-unload" onclick="unloadSingleModel(\'' + m.name.replace(/'/g,"\\'") + '\')">停止</button>';
             container.appendChild(row);
         });
     } catch (e) { console.warn('加载运行模型失败:', e); }
+}
+
+function formatVram(mb) {
+    if (mb >= 1024) return (mb / 1024).toFixed(1) + ' GB';
+    return mb + ' MB';
 }
 
 function toggleUnloadModel(el) {
@@ -1530,3 +2574,206 @@ async function unloadAllModels() {
 }
 
 setInterval(loadRunningModels, 5000);
+
+// ============================================================
+// 会话管理 (Session Management)
+// ============================================================
+
+let _currentSessionId = null;
+
+/// 加载会话列表
+async function loadSessionList() {
+    try {
+        var sessions = await window.__TAURI__.core.invoke('list_sessions');
+        var container = document.getElementById('sessionList');
+        if (!container) return;
+
+        if (!sessions || sessions.length === 0) {
+            container.innerHTML = '<div class="session-empty">' + _t('session.empty') + '</div>';
+            return;
+        }
+
+        container.innerHTML = sessions.map(function(s) {
+            var active = s.id === _currentSessionId ? ' session-item-active' : '';
+            return '<div class="session-item' + active + '" onclick="switchSession(\'' + s.id + '\')">' +
+                '<div class="session-item-info">' +
+                    '<div class="session-item-title">' + escHtml(s.title) + '</div>' +
+                    '<div class="session-item-meta">' + _tp('session.messages', { count: s.message_count, time: s.updated_at }) + '</div>' +
+                '</div>' +
+                '<div class="session-item-actions">' +
+                    '<button class="btn btn-sm session-rename-btn" onclick="event.stopPropagation();renameSession(\'' + s.id + '\',\'' + escHtml(s.title).replace(/'/g,"\\'") + '\')">✏️</button>' +
+                    '<button class="btn btn-sm session-del-btn" onclick="event.stopPropagation();deleteSession(\'' + s.id + '\')">🗑️</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+    } catch (e) { console.warn('加载会话失败:', e); }
+}
+
+/// 简单的 HTML 转义
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/// 创建新会话
+/// 显示聊天欢迎页（新建会话或清空时）
+function showChatWelcome() {
+    var container = document.getElementById('liteMessages');
+    if (!container) return;
+    container.innerHTML =
+        '<div class="welcome-message" style="text-align:center;padding:60px 20px 40px;">' +
+            '<img src="assets/sal-icon.png" width="64" height="64" style="margin-bottom:16px;border-radius:14px;">' +
+            '<h2 style="font-size:28px;font-weight:700;margin-bottom:8px;letter-spacing:-0.5px;">' + _t('chat.welcome_title') + '</h2>' +
+            '<p style="color:var(--text-secondary);font-size:15px;line-height:1.6;">' + _t('chat.welcome_desc') + '</p>' +
+        '</div>';
+}
+
+async function createNewSession() {
+    try {
+        var session = await window.__TAURI__.core.invoke('create_session');
+        _currentSessionId = session.id;
+        _liteSessionSummary = '';
+        _ctx80Triggered = false;
+        clearChatMessages();
+        showChatWelcome();
+        await loadSessionList();
+        switchPage('chat');
+    } catch (e) { alert('创建会话失败: ' + e); }
+}
+
+/// 切换到指定会话
+async function switchSession(sessionId) {
+    _currentSessionId = sessionId;
+    _liteSessionSummary = '';
+    _ctx80Triggered = false;
+    clearChatMessages();
+    try {
+        var messages = await window.__TAURI__.core.invoke('load_messages', { sessionId: sessionId });
+        messages.forEach(function(m) { addChatMessage(m.role, m.content); });
+        // 加载总结
+        await loadSessionSummary(sessionId);
+    } catch (e) { console.warn('加载消息失败:', e); }
+    await loadSessionList();
+    switchPage('chat');
+}
+
+/// 重命名会话
+async function renameSession(sessionId, currentTitle) {
+    var newTitle = prompt('输入新名称:', currentTitle);
+    if (!newTitle || newTitle === currentTitle) return;
+    try {
+        await window.__TAURI__.core.invoke('rename_session', { sessionId: sessionId, newTitle: newTitle });
+        await loadSessionList();
+    } catch (e) { alert('重命名失败: ' + e); }
+}
+
+/// 删除会话
+async function deleteSession(sessionId) {
+    if (!confirm('确定要删除此会话及其所有消息吗？')) return;
+    try {
+        await window.__TAURI__.core.invoke('delete_session', { sessionId: sessionId });
+        await window.__TAURI__.core.invoke('delete_session_summary', { sessionId: sessionId });
+        if (_currentSessionId === sessionId) {
+            _currentSessionId = null;
+            _liteSessionSummary = '';
+            clearChatMessages();
+        }
+        await loadSessionList();
+    } catch (e) { alert('删除失败: ' + e); }
+}
+
+/// 清空聊天消息
+function clearChatMessages() {
+    _liteMessages = [];
+    var container = document.getElementById('liteMessages');
+    if (container) container.innerHTML = '';
+}
+
+/// 在聊天中添加消息（供加载历史时复用）
+/// 思考块缓存：遇到 think 先存，遇到 assistant 一起渲染
+var _pendingThinkContent = null;
+
+function addChatMessage(role, content) {
+    // 同步写入 _liteMessages（供 API 请求用）
+    _liteMessages.push({ role: role, content: content });
+
+    var container = document.getElementById('liteMessages');
+    if (!container) return;
+
+    // 移除欢迎消息
+    var welcome = container.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+
+    if (role === 'think') {
+        // 缓存思考内容，等 assistant 消息一起渲染
+        _pendingThinkContent = content;
+        return;
+    }
+
+    if (role === 'assistant') {
+        // 助手消息：可能携带思考块
+        var msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-msg assistant';
+        msgDiv.style.marginBottom = '8px';
+
+        // 如果有缓存的思考内容，先渲染思考块（在正文上方）
+        if (_pendingThinkContent) {
+            var toggle = document.createElement('div');
+            toggle.className = 'think-toggle';
+            toggle.innerHTML = '<img class="think-icon" src="assets/sal-icon.png" width="14" height="14"> 思考过程';
+
+            var block = document.createElement('div');
+            block.className = 'think-block';
+            var inner = document.createElement('div');
+            inner.className = 'think-inner';
+            inner.textContent = _pendingThinkContent;
+            block.appendChild(inner);
+
+            toggle.onclick = function() {
+                var isColl = block.classList.contains('collapsed');
+                block.classList.toggle('collapsed', !isColl);
+                toggle.classList.toggle('collapsed', !isColl);
+            };
+
+            msgDiv.appendChild(toggle);
+            msgDiv.appendChild(block);
+
+            // 60ms 后自动折叠
+            setTimeout(function() {
+                block.classList.add('collapsed');
+                toggle.classList.add('collapsed');
+            }, 60);
+
+            _pendingThinkContent = null; // 清空缓存
+        }
+
+        var bubble = document.createElement('div');
+        bubble.className = 'chat-bubble';
+        bubble.innerHTML = marked(content);
+
+        var time = document.createElement('div');
+        time.className = 'chat-time';
+        time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+        msgDiv.appendChild(bubble);
+        msgDiv.appendChild(time);
+        container.appendChild(msgDiv);
+        container.scrollTop = container.scrollHeight;
+        return;
+    }
+
+    // 用户消息
+    var msgDiv = document.createElement('div');
+    msgDiv.className = 'chat-msg user';
+    msgDiv.style.marginBottom = '8px';
+
+    var bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.innerHTML = marked(content);
+
+    var time = document.createElement('div');
+    time.className = 'chat-time';
+    time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+    msgDiv.appendChild(bubble);
+    msgDiv.appendChild(time);
+    container.appendChild(msgDiv);
+    container.scrollTop = container.scrollHeight;
+}

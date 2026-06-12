@@ -52,16 +52,38 @@
         <div class="setup-box">
             <img src="assets/thinker-icon.png" width="48" height="48" class="setup-logo">
             <h1 class="setup-title">Soul Agent Launcher</h1>
-            <p class="setup-subtitle">正在完成首次配置...</p>
+            <p class="setup-subtitle" id="setupSubtitle">正在完成首次配置...</p>
 
-            <div class="setup-progress-wrap">
-                <div class="setup-progress-bar" id="setupProgressBar">
-                    <div class="setup-progress-fill" id="setupProgressFill"></div>
-                </div>
-                <div class="setup-progress-text" id="setupProgressText">准备中...</div>
+            <!-- 步骤进度列表 -->
+            <div class="setup-steps" id="setupSteps">
+                <!-- 由 JS 动态生成 -->
             </div>
 
-            <div class="setup-status" id="setupStatus">
+            <!-- 错误弹窗 -->
+            <div class="setup-error-box hidden" id="setupErrorBox">
+                <div class="setup-error-icon">⚠️</div>
+                <div class="setup-error-title" id="setupErrorTitle">出错了</div>
+                <div class="setup-error-msg" id="setupErrorMsg"></div>
+                <div class="setup-error-actions" id="setupErrorActions">
+                    <button class="btn" id="setupErrorSkipBtn" onclick="skipCurrentStep()">跳过</button>
+                    <button class="btn btn-accent" id="setupErrorRetryBtn" onclick="retryCurrentStep()">重试</button>
+                </div>
+            </div>
+
+            <!-- 错误报告 -->
+            <div class="setup-report-box hidden" id="setupReportBox">
+                <div class="setup-error-icon">❌</div>
+                <div class="setup-error-title">关键错误</div>
+                <div class="setup-error-msg" id="setupReportMsg">硬件检测完全失败，无法继续。</div>
+                <textarea class="setup-report-detail" id="setupReportDetail" readonly rows="6"></textarea>
+                <div class="setup-error-actions">
+                    <button class="btn" onclick="copyErrorReport()">复制报告</button>
+                    <button class="btn btn-accent" onclick="openFeedback()">提交反馈</button>
+                    <button class="btn btn-danger" onclick="closeApp()">退出应用</button>
+                </div>
+            </div>
+
+            <div class="setup-status hidden" id="setupStatus">
                 <div class="setup-spinner"></div>
                 <span id="setupMessage">正在检测系统环境...</span>
             </div>
@@ -96,27 +118,31 @@
             <nav class="sidebar-nav">
                 <a href="#" class="nav-item active" data-page="home">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h1v7c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-7h1a1 1 0 0 0 .7-1.7l-9-8.5a1 1 0 0 0-1.4 0l-9 8.5A1 1 0 0 0 3 13zm7 7v-5h4v5h-4zm2-15.6 7 6.6H5l7-6.6z"/></svg>
-                    <span>首页</span>
+                    <span data-i18n="nav.home">首页</span>
                 </a>
                 <a href="#" class="nav-item" data-page="models">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></svg>
-                    <span>模型</span>
+                    <span data-i18n="nav.models">模型</span>
                 </a>
                 <a href="#" class="nav-item" data-page="launch">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-                    <span>启动</span>
+                    <span data-i18n="nav.launch">启动</span>
+                </a>
+                <a href="#" class="nav-item" data-page="sessions">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/><path d="M7 9h10v2H7zm0-3h10v2H7zm0 6h7v2H7z"/></svg>
+                    <span data-i18n="nav.sessions">会话</span>
                 </a>
                 <a href="#" class="nav-item" data-page="chat">
                     <svg class="svg-icon" width="20" height="20"><use href="#icon-chat"/></svg>
-                    <span>极简对话</span>
+                    <span data-i18n="nav.chat">极简对话</span>
                 </a>
                 <a href="#" class="nav-item" data-page="settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                    <span>设置</span>
+                    <span data-i18n="nav.settings">设置</span>
                 </a>
             </nav>
 
-            <div class="sidebar-version">v0.2.2</div>
+            <div class="sidebar-version">v0.3.3</div>
         </div>
 
         <!-- Main Content Area -->
@@ -143,20 +169,6 @@
                             <div class="card-actions" style="margin-top:16px;">
                                 <button class="btn btn-accent" id="homeStartBtn" onclick="switchPage('launch')">启动服务</button>
                                 <button class="btn btn-danger" id="homeStopBtn" onclick="stopServer()" style="display:none;">停止服务</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
-                            <span class="card-title">模型管理</span>
-                        </div>
-                        <div class="card-body" style="text-align:center;padding:24px 0;">
-                            <div class="model-count" id="homeModelCount">0</div>
-                            <div class="model-label">个 GGUF 模型</div>
-                            <div class="card-actions" style="margin-top:16px;">
-                                <button class="btn" onclick="switchPage('models')">管理模型</button>
                             </div>
                         </div>
                     </div>
@@ -196,7 +208,10 @@
             <div class="page" id="page-models">
                 <div class="page-header-actions">
                     <h2 class="page-title">模型管理</h2>
-                    <button class="btn btn-accent" onclick="refreshModels()">刷新</button>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-accent" onclick="refreshModels()">刷新</button>
+                        <button class="btn btn-import" onclick="importModel()">导入</button>
+                    </div>
                 </div>
                 <p class="page-desc">管理本地模型或从魔塔社区搜索下载。</p>
 
@@ -398,7 +413,11 @@
                             <circle class="ctx-ring-fill" id="liteCtxRingFill" cx="6" cy="6" r="5" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="31.416" stroke-dashoffset="31.416" transform="rotate(-90 6 6)" stroke-linecap="round"/>
                         </svg>
                         <span class="ctx-text" id="liteCtxText">0% - 0.00K/2.00K 已使用</span>
-                        <input type="checkbox" id="liteMultimodal" style="display:none;">
+                        <div class="model-quick-switch" id="liteModelQuickSwitch" title="切换模型">
+                            <span class="mqs-label" id="liteMqsLabel">default</span>
+                            <svg class="mqs-arrow" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 2l3 4 3-4z"/></svg>
+                            <div class="mqs-dropdown" id="liteMqsDropdown"></div>
+                        </div>
                         <div class="status-center">
                             <div class="status-toggle think-tgl active" id="liteThinkToggle" title="深度思考">
                                 <img class="tgl-icon" src="assets/thinker-icon.png" width="14" height="14">
@@ -406,15 +425,15 @@
                             </div>
                         </div>
                         <div class="status-right">
-                            <div class="status-toggle active" id="liteToolToggle" title="工具调用" onclick="clearChat()">
-                                <svg class="tgl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                                <span class="tgl-label">清空对话</span>
+                            <div class="status-toggle active" id="liteMultimodalToggle" title="多模态">
+                                <svg class="tgl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                <span class="tgl-label">多模态</span>
                             </div>
                         </div>
                     </div>
 
                     <div class="chat-bar">
-                        <textarea id="userInput" placeholder="输入消息..." rows="1"
+                        <textarea id="userInput" data-i18n-placeholder="chat.input_placeholder" placeholder="输入消息，Enter 发送，Shift+Enter 换行..." rows="1"
                             style="flex:1;resize:none;overflow:hidden;" disabled></textarea>
                         <button class="btn btn-accent" id="sendBtn" onclick="sendLiteMessage()" disabled>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -490,6 +509,17 @@
                 </div>
 
                 <div class="settings-section">
+                    <h3 class="section-title" data-i18n="settings.title">设置</h3>
+                    <div class="form-group">
+                        <label data-i18n="settings.language">语言</label>
+                        <select id="langSelect" class="form-input" onchange="onLangChange(this.value)" style="max-width:200px;">
+                            <option value="zh" data-i18n-value="settings.language_zh">中文</option>
+                            <option value="en" data-i18n-value="settings.language_en">English</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <h3 class="section-title">外观</h3>
                     <div class="form-group">
                         <label>主题模式</label>
@@ -514,12 +544,48 @@
 
                 <div class="card-actions" style="margin-top:24px;">
                     <button class="btn btn-accent" onclick="saveSettings()">保存设置</button>
+                    <button class="btn btn-outline" onclick="checkUpdate();this.innerText='检查中...'">检查更新</button>
+                    <span id="updateStatus" style="font-size:12px;color:var(--text-tertiary);margin-left:8px;"></span>
+                </div>
+            </div>
+        </div>
+
+            <!-- ===== 会话页 ===== -->
+            <div class="page" id="page-sessions">
+                <h2 class="page-title">会话</h2>
+                <p class="page-desc">管理对话历史记录。</p>
+
+                <div class="card" style="margin-bottom:16px;">
+                    <div class="card-header">
+                        <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-chat"/></svg></span>
+                        <span class="card-title">历史会话</span>
+                        <div class="card-header-actions">
+                            <button class="btn btn-accent btn-sm" onclick="createNewSession()">新建会话</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="session-list" id="sessionList">
+                            <div class="session-empty">暂无会话，点击「新建会话」开始。</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Download Overlay -->
+    <div class="download-overlay hidden" id="confirmOverlay">
+        <div class="download-box">
+            <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
+            <h3 id="confirmTitle">确认下载</h3>
+            <p id="confirmMessage" style="font-size:13px;color:var(--text-secondary);line-height:1.6;"></p>
+            <div class="card-actions" style="margin-top:16px;justify-content:center;">
+                <button class="btn" onclick="closeConfirmDialog(false)">取消</button>
+                <button class="btn btn-accent" onclick="closeConfirmDialog(true)">确认下载</button>
+            </div>
+        </div>
+    </div>
+
     <div class="download-overlay hidden" id="downloadOverlay">
         <div class="download-box">
             <h3 id="downloadTitle">正在下载模型</h3>
@@ -530,11 +596,33 @@
             <div class="download-progress-text" id="downloadProgressPct">0%</div>
             <div class="download-progress-message" id="downloadProgressMsg">准备中...</div>
             <div class="card-actions" style="margin-top:12px;">
-                <button class="btn btn-danger" onclick="cancelDownload()">取消下载</button>
+                <button class="btn btn-danger" id="cancelDownloadBtn" onclick="cancelDownload()">取消下载</button>
+                <button class="btn btn-accent hidden" id="retryDownloadBtn" onclick="retryDownload()">重试下载</button>
             </div>
         </div>
     </div>
 
+    <!-- 隐藏的文件选择器（导入模型用） -->
+    <input type="file" id="importFileInput" accept=".gguf" style="display:none">
+
+    <!-- 导入命名弹窗 -->
+    <div class="download-overlay hidden" id="importOverlay">
+        <div class="download-box" style="text-align:left;">
+            <h3>导入模型</h3>
+            <p id="importFileInfo" style="word-break:break-all;">选中文件: -</p>
+            <div class="form-group" style="margin-top:12px;">
+                <label for="importNameInput">模型名称</label>
+                <input type="text" id="importNameInput" class="form-input" placeholder="输入模型显示名称" style="width:100%;">
+                <small style="color:var(--text-tertiary);font-size:11px;">导入后文件名锁定，不支持改名</small>
+            </div>
+            <div class="card-actions" style="margin-top:16px;justify-content:flex-end;">
+                <button class="btn btn-danger" onclick="cancelImport()">取消</button>
+                <button class="btn btn-accent" onclick="confirmImport()">确认导入</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/lang.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
