@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -336,6 +337,14 @@ struct ServerState {
     model_name: Mutex<String>,
 }
 
+/// 单服务器模式的"计划内停止"标记：stop/wake/sleep 都会杀进程再重启，
+/// 监控线程看到该标记时跳过（避免把计划内操作误判为崩溃）
+static SERVER_EXPECTED_STOP: AtomicBool = AtomicBool::new(false);
+/// 单服务器模式连续崩溃计数
+static SERVER_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
+/// 模型/服务自动重启的最大尝试次数，超过则放弃并通知前端
+const MODEL_MAX_RESTARTS: u32 = 3;
+
 /// 全局模型路由表：模型名 → proxy_port（供 proxy 线程读取）
 static MODEL_ROUTER: OnceLock<Mutex<HashMap<String, u16>>> = OnceLock::new();
 fn get_model_router() -> &'static Mutex<HashMap<String, u16>> {
@@ -359,6 +368,9 @@ struct RunningModel {
     /// /chat 常驻模式：true=永不休眠，false=待机可休眠
     #[serde(default = "return_true")]
     persistent: bool,
+    /// 意外崩溃次数（自动重启计数）
+    #[serde(default)]
+    crash_count: u32,
 }
 
 #[allow(dead_code)]
@@ -487,6 +499,24 @@ fn check_standby(state: State<ServerState>) -> Result<bool, String> {
 // 多模型管理：启动/卸载
 // ============================================================
 
+/// 启动 llama-server 加载指定模型（全量 GPU 卸载，多卡自动选 --main-gpu）
+fn spawn_model_process(llama_path: &str, model_path: &str, llama_port: u16, ctx: u32) -> Result<std::process::Child, String> {
+    let gpu_info = detect_gpu_internal();
+    let mut cmd = new_hidden_cmd(llama_path);
+    cmd.args(["-m", model_path, "--host", "127.0.0.1",
+              "--port", &llama_port.to_string(), "-c", &ctx.to_string(),
+              "-ngl", "99"]);
+    if gpu_info.backend == "cuda" && gpu_info.gpu_count > 1 {
+        soul_log("INFO", "model", &format!("  多 GPU 检测: {} 个 -> --main-gpu {}",
+            gpu_info.gpu_count, gpu_info.best_gpu_index));
+        cmd.args(["--main-gpu", &gpu_info.best_gpu_index.to_string()]);
+    }
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("启动模型进程失败: {}", e))
+}
+
 /// 启动一个模型实例
 #[tauri::command]
 fn start_model(
@@ -501,31 +531,10 @@ fn start_model(
     soul_log("INFO", "model", &format!("start_model name='{}' port={} llama_port={} ctx={}", model_name, port, llama_port, ctx));
     soul_log("DEBUG", "model", &format!("  llama_path={} model_path={}", llama_path, model_path));
 
-    // 检测 GPU 情况：多卡时自动选最强显卡
-    let gpu_info = detect_gpu_internal();
-    let main_gpu = if gpu_info.backend == "cuda" && gpu_info.gpu_count > 1 {
-        soul_log("INFO", "model", &format!("  多 GPU 检测: {} 个, 最强 #[{}] {} ({} MB) -> --main-gpu {}",
-            gpu_info.gpu_count, gpu_info.best_gpu_index, gpu_info.gpu_name,
-            gpu_info.vram_total_mb, gpu_info.best_gpu_index));
-        Some(gpu_info.best_gpu_index)
-    } else {
-        None
-    };
-
-    let mut cmd = new_hidden_cmd(&llama_path);
-    cmd.args(["-m", &model_path, "--host", "127.0.0.1",
-              "--port", &llama_port.to_string(), "-c", &ctx.to_string(),
-              "-ngl", "99"]);
-    if let Some(gpu_idx) = main_gpu {
-        cmd.args(["--main-gpu", &gpu_idx.to_string()]);
-    }
-    let child = cmd
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+    let child = spawn_model_process(&llama_path, &model_path, llama_port, ctx)
         .map_err(|e| {
-            soul_log_detail("ERROR", "model", "start_model 启动失败", &e.to_string());
-            format!("启动模型失败: {}", e)
+            soul_log_detail("ERROR", "model", "start_model 启动失败", &e);
+            e
         })?;
 
     let pid = child.id();
@@ -549,6 +558,7 @@ fn start_model(
         vram_mb: 0,
         status: "running".to_string(),
         persistent: true,
+        crash_count: 0,
     };
 
     // 注册到全局路由表
@@ -619,6 +629,8 @@ fn unload_model(state: State<RunningModelsState>, model_name: String) -> Result<
 }
 
 /// 列出所有运行中的模型（自动填充显存占用）
+/// 注意：崩溃模型的清理由 start_crash_monitor 负责（自动重启或放弃后移除），
+/// 这里不再主动 retain 清除，避免与监控线程竞态把重启中的模型丢掉
 #[tauri::command]
 fn list_running_models(state: State<RunningModelsState>) -> Result<Vec<RunningModel>, String> {
     // 先查询 nvidia-smi 获取所有计算进程的显存占用
@@ -626,20 +638,15 @@ fn list_running_models(state: State<RunningModelsState>) -> Result<Vec<RunningMo
 
     let mut models = state.models.lock().map_err(|e| e.to_string())?;
     for model in models.iter_mut() {
+        if model.status == "restarting" { continue; }
         if let Ok(pid) = model.pid.parse::<u32>() {
             model.vram_mb = vram_map.get(&pid).copied().unwrap_or(0);
         }
 
         // 检查进程是否还活着
-        let alive = new_hidden_cmd("tasklist")
-            .args(["/FI", &format!("PID eq {}", model.pid), "/NH"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).contains(&model.pid))
-            .unwrap_or(false);
+        let alive = is_pid_alive(&model.pid);
         model.status = if alive { "running".to_string() } else { "stopped".to_string() };
     }
-    // 清除已退出的模型
-    models.retain(|m| m.status == "running");
 
     Ok(models.clone())
 }
@@ -677,21 +684,198 @@ fn stop_all_models(state: State<RunningModelsState>) -> Result<String, String> {
     soul_log("INFO", "model", "stop_all_models 开始");
     let mut models = state.models.lock().map_err(|e| e.to_string())?;
     let count = models.len();
-    for model in models.iter() {
-        if let Ok(pid) = model.pid.parse::<u32>() {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/PID", &pid.to_string()])
-                .output();
-        }
-    }
+    // 先摘除列表与路由表（避免崩溃监控线程把计划内停止误判为意外退出而自动重启），再杀进程
+    let pids: Vec<String> = models.iter().map(|m| m.pid.clone()).collect();
     models.clear();
-    // 清空路由表
+    drop(models);
     if let Ok(mut router) = get_model_router().lock() {
         router.clear();
+    }
+    for pid in pids {
+        let _ = new_hidden_cmd("taskkill")
+            .args(["/F", "/PID", &pid])
+            .output();
     }
     let msg = format!("已停止 {} 个模型", count);
     soul_log("INFO", "model", &msg);
     Ok(msg)
+}
+
+/// 检查 PID 对应进程是否存活（tasklist 探测）
+fn is_pid_alive(pid_str: &str) -> bool {
+    new_hidden_cmd("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid_str), "/NH"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(pid_str))
+        .unwrap_or(false)
+}
+
+/// 从 config.json 读取 llama_path（崩溃自动重启需要）
+fn read_llama_path_from_config() -> Option<String> {
+    let path = get_launcher_dir().join("config.json");
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<serde_json::Value>(&text).ok()?
+        .get("llama_path")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+// ============================================================
+// 崩溃自动恢复监控（每 5 秒巡检 llama 进程）
+// ============================================================
+
+fn start_crash_monitor(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        soul_log("INFO", "monitor", "崩溃自动恢复监控线程已启动");
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let _ = monitor_running_models(&app_handle);
+            monitor_single_server(&app_handle);
+        }
+    });
+}
+
+/// 多模型模式巡检：意外退出 → 自动重启（累计超限则放弃并移除）
+fn monitor_running_models(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let state = match app_handle.try_state::<RunningModelsState>() {
+        Some(s) => s,
+        None => return Ok(()),
+    };
+
+    // 1) 找出意外退出的模型（标记 restarting，防止与 UI 轮询竞态）
+    let dead: Vec<RunningModel> = {
+        let mut models = match state.models.lock() { Ok(m) => m, Err(e) => return Err(e.to_string()) };
+        let mut dead = Vec::new();
+        for m in models.iter_mut() {
+            if m.status == "restarting" { continue; }
+            if !is_pid_alive(&m.pid) {
+                m.crash_count += 1;
+                m.status = "restarting".to_string();
+                let mut d = m.clone();
+                d.status = "restarting".to_string();
+                dead.push(d);
+            }
+        }
+        dead
+    };
+    if dead.is_empty() { return Ok(()); }
+
+    for d in dead {
+        // 2) 放弃条件：崩溃次数超限 / 模型文件已不存在
+        if d.crash_count > MODEL_MAX_RESTARTS || !std::path::Path::new(&d.model_path).exists() {
+            if let Ok(mut models) = state.models.lock() {
+                models.retain(|m| m.name != d.name);
+            }
+            if let Ok(mut router) = get_model_router().lock() {
+                router.remove(&d.name);
+            }
+            soul_log("ERROR", "monitor", &format!("模型 '{}' 连续崩溃 {} 次，停止自动重启并移除", d.name, d.crash_count));
+            let _ = app_handle.emit("model-crash-giveup", serde_json::json!({
+                "name": d.name, "proxy_port": d.proxy_port, "crash_count": d.crash_count,
+            }));
+            continue;
+        }
+
+        // 3) 按原参数重启（llama_path 从 config.json 读取）
+        let llama_path = read_llama_path_from_config();
+        let respawn = llama_path
+            .map(|lp| spawn_model_process(&lp, &d.model_path, d.llama_port, d.ctx));
+        match respawn {
+            Some(Ok(mut child)) => {
+                let new_pid = child.id().to_string();
+                soul_log("INFO", "monitor", &format!("模型 '{}' 意外退出，已自动重启 pid={} (第 {}/{} 次)",
+                    d.name, new_pid, d.crash_count, MODEL_MAX_RESTARTS));
+                let _ = app_handle.emit("model-restarted", serde_json::json!({
+                    "name": d.name, "proxy_port": d.proxy_port, "pid": new_pid, "crash_count": d.crash_count,
+                }));
+                // 回写新 PID；若期间用户已手动卸载，则立即回收刚拉起的孤儿进程
+                let mut models = match state.models.lock() {
+                    Ok(m) => m,
+                    Err(_) => { let _ = child.kill(); continue; }
+                };
+                match models.iter_mut().find(|m| m.name == d.name && m.pid == d.pid) {
+                    Some(m) => {
+                        m.pid = new_pid;
+                        m.started_at = format_ts(SystemTime::now().duration_since(UNIX_EPOCH)
+                            .unwrap_or_default().as_secs());
+                        m.status = "running".to_string();
+                        m.crash_count = d.crash_count;
+                    }
+                    None => {
+                        drop(models);
+                        soul_log("WARN", "monitor", &format!("模型 '{}' 重启期间被手动卸载，回收孤儿进程 pid={}", d.name, new_pid));
+                        let _ = child.kill();
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                soul_log_detail("ERROR", "monitor", &format!("模型 '{}' 自动重启失败", d.name), &e);
+                // 回退为 stopped，下一轮继续尝试（crash_count 已累加，超限自动放弃）
+                if let Ok(mut models) = state.models.lock() {
+                    if let Some(m) = models.iter_mut().find(|m| m.name == d.name && m.pid == d.pid) {
+                        m.status = "stopped".to_string();
+                    }
+                }
+            }
+            None => {
+                soul_log("ERROR", "monitor", &format!("模型 '{}' 崩溃后未找到 llama_path (config.json)，跳过重启", d.name));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 单服务器模式巡检：进程意外退出 → 按 spawn_params 自动恢复（待机崩溃则恢复为待机）
+fn monitor_single_server(app_handle: &tauri::AppHandle) {
+    if SERVER_EXPECTED_STOP.load(Ordering::SeqCst) { return; }
+    let state = match app_handle.try_state::<ServerState>() {
+        Some(s) => s,
+        None => return,
+    };
+
+    // 是否已退出（持有锁内判断）
+    let exited = {
+        let mut guard = match state.server.lock() { Ok(g) => g, Err(_) => return };
+        match guard.as_mut() {
+            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+            None => false,
+        }
+    };
+    if !exited { return; }
+
+    let params = match state.spawn_params.lock() { Ok(p) => p.clone(), Err(_) => None };
+    let Some(params) = params else { return };
+    let standby = state.standby.lock().map(|s| *s).unwrap_or(false);
+
+    let count = SERVER_CRASH_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+    if count > MODEL_MAX_RESTARTS {
+        soul_log("ERROR", "monitor", &format!("llama-server 连续崩溃 {} 次，停止自动恢复", count));
+        let _ = app_handle.emit("server-crash-giveup", serde_json::json!({ "crash_count": count }));
+        return;
+    }
+
+    let llama_port = if params.port >= 65535 { 20001u16 } else { params.port + 1 };
+    // 待机模式崩溃 → 恢复为待机（不带 -m）；运行模式崩溃 → 重新加载模型
+    let mut cmd = new_hidden_cmd(&params.llama_path);
+    if !standby {
+        cmd.arg("-m").arg(&params.model_path);
+    }
+    cmd.args(["--host", "127.0.0.1", "--port", &llama_port.to_string(), "-c", &params.ctx.to_string()]);
+    match cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+        Ok(child) => {
+            let pid = child.id();
+            if let Ok(mut g) = state.server.lock() { *g = Some(child); }
+            soul_log("INFO", "monitor", &format!("llama-server 意外退出，已自动恢复 pid={} mode={} (第 {}/{} 次)",
+                pid, if standby { "待机" } else { "运行" }, count, MODEL_MAX_RESTARTS));
+            let _ = app_handle.emit("server-restarted", serde_json::json!({
+                "pid": pid.to_string(), "port": params.port, "crash_count": count, "standby": standby,
+            }));
+        }
+        Err(e) => {
+            soul_log_detail("ERROR", "monitor", "llama-server 自动恢复失败", &e.to_string());
+            let _ = app_handle.emit("server-crash-giveup", serde_json::json!({ "crash_count": count, "error": e.to_string() }));
+        }
+    }
 }
 
 /// 获取模型直连 llama 端口（绕过代理，用于工具调用等场景）
@@ -720,6 +904,8 @@ fn start_server(
 ) -> Result<String, String> {
     soul_log("INFO", "server", &format!("start_server port={} ctx={} standby={}", port, ctx, standby));
     soul_log("DEBUG", "server", &format!("  llama_path={} model_path={}", llama_path, model_path));
+    // 手动启动视为全新开始：重置崩溃计数
+    SERVER_CRASH_COUNT.store(0, Ordering::SeqCst);
     let mut starting = state.server_starting.lock().map_err(|e| e.to_string())?;
     if *starting {
         return Err("服务器正在启动中".to_string());
@@ -866,6 +1052,9 @@ fn start_server(
 #[tauri::command]
 fn stop_server(state: State<ServerState>) -> Result<String, String> {
     soul_log("INFO", "server", "stop_server 开始");
+    // 计划内停止：让崩溃监控线程跳过这段时间窗
+    SERVER_EXPECTED_STOP.store(true, Ordering::SeqCst);
+    SERVER_CRASH_COUNT.store(0, Ordering::SeqCst);
     let mut server_guard = state.server.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = server_guard.take() {
         soul_log("INFO", "server", &format!("stop_server killing pid={}", child.id()));
@@ -874,9 +1063,11 @@ fn stop_server(state: State<ServerState>) -> Result<String, String> {
         // 清除待机标记
         if let Ok(mut s) = state.standby.lock() { *s = false; }
         soul_log("INFO", "server", "stop_server 完成");
+        SERVER_EXPECTED_STOP.store(false, Ordering::SeqCst);
         Ok("服务器已停止".to_string())
     } else {
         soul_log("WARN", "server", "stop_server 服务器未在运行");
+        SERVER_EXPECTED_STOP.store(false, Ordering::SeqCst);
         Err("服务器未在运行".to_string())
     }
 }
@@ -900,18 +1091,22 @@ fn wake_server(
     }
 
     let start = std::time::Instant::now();
+    // 计划内杀进程重启：让崩溃监控线程跳过这段时间窗
+    SERVER_EXPECTED_STOP.store(true, Ordering::SeqCst);
+    SERVER_CRASH_COUNT.store(0, Ordering::SeqCst);
     kill_server(&state);
     if let Ok(mut s) = state.standby.lock() { *s = false; }
 
     let llama_port = if params.port >= 65535 { 20001u16 } else { params.port + 1 };
     soul_log("INFO", "server", &format!("wake_server 重新启动 llama-server: {}:{}", params.llama_path, llama_port));
-    let child = new_hidden_cmd(&params.llama_path)
+    let spawn_result = new_hidden_cmd(&params.llama_path)
         .args(["-m", &params.model_path, "--host", "127.0.0.1",
                "--port", &llama_port.to_string(), "-c", &params.ctx.to_string()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("唤醒失败: {}", e))?;
+        .spawn();
+    SERVER_EXPECTED_STOP.store(false, Ordering::SeqCst);
+    let child = spawn_result.map_err(|e| format!("唤醒失败: {}", e))?;
 
     let pid = child.id();
     if let Ok(mut g) = state.server.lock() { *g = Some(child); }
@@ -951,18 +1146,22 @@ fn sleep_server(
     }
 
     let start = std::time::Instant::now();
+    // 计划内杀进程重启：让崩溃监控线程跳过这段时间窗
+    SERVER_EXPECTED_STOP.store(true, Ordering::SeqCst);
+    SERVER_CRASH_COUNT.store(0, Ordering::SeqCst);
     kill_server(&state);
     if let Ok(mut s) = state.standby.lock() { *s = true; }
 
     soul_log("INFO", "server", &format!("sleep_server 启动待机模式: {}:{}", params.llama_path, llama_port));
 
-    let child = new_hidden_cmd(&params.llama_path)
+    let spawn_result = new_hidden_cmd(&params.llama_path)
         .args(["--host", "127.0.0.1",
                "--port", &llama_port.to_string(), "-c", &params.ctx.to_string()])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("休眠失败: {}", e))?;
+        .spawn();
+    SERVER_EXPECTED_STOP.store(false, Ordering::SeqCst);
+    let child = spawn_result.map_err(|e| format!("休眠失败: {}", e))?;
 
     if let Ok(mut g) = state.server.lock() { *g = Some(child); }
 
@@ -4203,6 +4402,10 @@ fn main() {
                 .separator()
                 .item(&quit_item)
                 .build()?;
+
+            // 崩溃自动恢复监控线程（每 5 秒巡检 llama 进程，首次延迟 5 秒避开启动期）
+            let monitor_handle = app.handle().clone();
+            start_crash_monitor(monitor_handle);
 
             let _tray = TrayIconBuilder::new()
                 .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))

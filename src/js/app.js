@@ -492,6 +492,31 @@ async function listenServerOutput() {
     } catch (e) {
         console.warn('stdout 监听失败:', e);
     }
+
+    // 崩溃自动恢复事件提示
+    try {
+        await window.__TAURI__.event.listen('model-restarted', (event) => {
+            const p = event.payload || {};
+            addConsoleLine('warn', `⚠️ 模型 ${p.name} 意外退出，已自动重启（第 ${p.crash_count} 次尝试，PID ${p.pid}）`);
+            showKbToast(`模型 ${p.name} 意外退出，已自动重启`);
+        });
+        await window.__TAURI__.event.listen('model-crash-giveup', (event) => {
+            const p = event.payload || {};
+            addConsoleLine('warn', `❌ 模型 ${p.name} 连续崩溃 ${p.crash_count} 次，已停止自动重启`);
+            showKbToast(`模型 ${p.name} 连续崩溃，已停止自动重启`);
+        });
+        await window.__TAURI__.event.listen('server-restarted', (event) => {
+            const p = event.payload || {};
+            addConsoleLine('warn', `⚠️ llama-server 意外退出，已自动恢复（PID ${p.pid}）`);
+            showKbToast('llama-server 意外退出，已自动恢复');
+        });
+        await window.__TAURI__.event.listen('server-crash-giveup', (event) => {
+            addConsoleLine('warn', '❌ llama-server 连续崩溃，已停止自动恢复');
+            showKbToast('llama-server 连续崩溃，已停止自动恢复');
+        });
+    } catch (e) {
+        console.warn('崩溃恢复事件监听失败:', e);
+    }
 }
 
 // ============================================================
