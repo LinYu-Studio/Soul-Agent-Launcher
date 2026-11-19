@@ -1,6 +1,6 @@
 [package]
 name = "soul-agent-launcher"
-version = "0.3.3"
+version = "0.4.1"
 description = "Soul Agent Launcher - 启动与管理 llama.cpp 服务"
 authors = ["Your Name"]
 edition = "2021"
@@ -26,3 +26,4 @@ zip = "2"
 tiny_http = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+fs2 = "0.4"

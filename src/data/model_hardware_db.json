@@ -1,0 +1,91 @@
+{
+  "_version": "1.1",
+  "_description": "Soul Agent 模型硬件性能数据库 v1.1 — 按 GPU 具体型号匹配带宽 + MoE 架构修正",
+
+  "gpu_perf": [
+    { "pattern": "RTX 5090",           "bw": 1792, "tier": "旗舰",  "tpg": 0.72 },
+    { "pattern": "RTX 5080",           "bw": 960,  "tier": "旗舰",  "tpg": 0.70 },
+    { "pattern": "RTX 5070 Ti",        "bw": 896,  "tier": "高端",  "tpg": 0.68 },
+    { "pattern": "RTX 5070",           "bw": 672,  "tier": "中高端","tpg": 0.65 },
+    { "pattern": "RTX 5060 Ti",        "bw": 448,  "tier": "中端",  "tpg": 0.60 },
+    { "pattern": "RTX 5060",           "bw": 320,  "tier": "中端",  "tpg": 0.58 },
+
+    { "pattern": "RTX 4090 D?",         "bw": 1008, "tier": "旗舰",  "tpg": 0.72 },
+    { "pattern": "RTX 4080 SUPER",     "bw": 736,  "tier": "高端",  "tpg": 0.68 },
+    { "pattern": "RTX 4080",           "bw": 716,  "tier": "高端",  "tpg": 0.68 },
+    { "pattern": "RTX 4070 Ti SUPER",  "bw": 672,  "tier": "高端",  "tpg": 0.65 },
+    { "pattern": "RTX 4070 Ti?",       "bw": 504,  "tier": "中高端","tpg": 0.63 },
+    { "pattern": "RTX 4070 SUPER",     "bw": 504,  "tier": "中高端","tpg": 0.63 },
+    { "pattern": "RTX 4070",           "bw": 504,  "tier": "中高端","tpg": 0.63 },
+    { "pattern": "RTX 4060 Ti",        "bw": 288,  "tier": "中端",  "tpg": 0.58 },
+    { "pattern": "RTX 4060",           "bw": 272,  "tier": "中端",  "tpg": 0.55 },
+
+    { "pattern": "RTX 3090 Ti",        "bw": 1008, "tier": "旗舰",  "tpg": 0.70 },
+    { "pattern": "RTX 3090",           "bw": 936,  "tier": "旗舰",  "tpg": 0.70 },
+    { "pattern": "RTX 3080 Ti",        "bw": 912,  "tier": "旗舰",  "tpg": 0.68 },
+    { "pattern": "RTX 3080 12G",       "bw": 912,  "tier": "高端",  "tpg": 0.68 },
+    { "pattern": "RTX 3080",           "bw": 760,  "tier": "高端",  "tpg": 0.67 },
+    { "pattern": "RTX 3070 Ti",        "bw": 608,  "tier": "中高端","tpg": 0.65 },
+    { "pattern": "RTX 3070",           "bw": 448,  "tier": "中端",  "tpg": 0.60 },
+    { "pattern": "RTX 3060 Ti",        "bw": 448,  "tier": "中端",  "tpg": 0.58 },
+    { "pattern": "RTX 3060 (12G|12GB)", "bw": 360, "tier": "中端",  "tpg": 0.55 },
+    { "pattern": "RTX 3060",           "bw": 240,  "tier": "入门",  "tpg": 0.50 },
+    { "pattern": "RTX 3050",           "bw": 224,  "tier": "入门",  "tpg": 0.48 },
+
+    { "pattern": "RTX 2080 Ti",        "bw": 616,  "tier": "中高端","tpg": 0.65 },
+    { "pattern": "RTX 2080 SUPER",     "bw": 496,  "tier": "中端",  "tpg": 0.62 },
+    { "pattern": "RTX 2080",           "bw": 448,  "tier": "中端",  "tpg": 0.60 },
+    { "pattern": "RTX 2070 SUPER",     "bw": 448,  "tier": "中端",  "tpg": 0.58 },
+    { "pattern": "RTX 2070",           "bw": 448,  "tier": "中端",  "tpg": 0.58 },
+    { "pattern": "RTX 2060 SUPER",     "bw": 448,  "tier": "中端",  "tpg": 0.55 },
+    { "pattern": "RTX 2060",           "bw": 336,  "tier": "入门",  "tpg": 0.50 },
+
+    { "pattern": "GTX 1660 Ti",        "bw": 288,  "tier": "入门",  "tpg": 0.48 },
+    { "pattern": "GTX 1660 SUPER",     "bw": 336,  "tier": "入门",  "tpg": 0.48 },
+    { "pattern": "GTX 1660",           "bw": 192,  "tier": "入门",  "tpg": 0.45 },
+    { "pattern": "GTX 1650 SUPER",     "bw": 192,  "tier": "入门",  "tpg": 0.42 },
+    { "pattern": "GTX 1650",           "bw": 128,  "tier": "入门",  "tpg": 0.40 }
+  ],
+
+  "arch_mult": {
+    "_note": "架构类型对 token/s 的修正系数。MoE 模型因只激活部分参数，推理速度更快。",
+    "MoE": 1.4,
+    "Dense": 1.0
+  },
+
+  "vram_usage_gb": {
+    "_note": "每个模型大小在 Q4_K_M 量化下的预估 VRAM 占用 (GB)。键为模型参数量字符串。",
+    "q4_base": {
+      "0.27": 0.3, "0.5": 0.4, "0.6": 0.5, "1": 0.7, "1.3": 0.9, "1.5": 1.0,
+      "1.7": 1.2, "3": 2.0, "4": 2.6, "5.7": 3.5, "6": 3.8, "6.7": 4.2,
+      "7": 4.5, "8": 5.0, "9": 5.8, "12": 7.5, "13": 8.2,
+      "14": 8.8, "27": 16.5, "30": 6.5, "32": 19.0, "33": 20.5, "34": 21.0, "72": 42.0
+    }
+  },
+
+  "quant_mult": {
+    "_note": "各量化等级相对 Q4_K_M 的 VRAM 占用乘数。不区分数值大小写（如 q4_K_M 和 Q4_K_M 都匹配）。",
+    "q2_K": 0.55, "q3_K_M": 0.70, "q4_K_M": 1.0, "Q4_K_M": 1.0,
+    "q5_K_M": 1.15, "Q5_0": 1.25, "Q5_K_M": 1.2, "q6_K": 1.35,
+    "q8_0": 1.75, "Q6_K": 1.4, "Q8_0": 1.8
+  },
+
+  "vram_tiers": [
+    { "vram_min_mb": 24000, "label": "旗舰显卡", "bw_fallback": 900, "tpg_fallback": 0.70 },
+    { "vram_min_mb": 16000, "label": "高端显卡", "bw_fallback": 700, "tpg_fallback": 0.65 },
+    { "vram_min_mb": 12000, "label": "中高端显卡", "bw_fallback": 520, "tpg_fallback": 0.60 },
+    { "vram_min_mb": 8000,  "label": "中端显卡", "bw_fallback": 380, "tpg_fallback": 0.55 },
+    { "vram_min_mb": 6000,  "label": "入门显卡", "bw_fallback": 300, "tpg_fallback": 0.50 },
+    { "vram_min_mb": 4000,  "label": "低端显卡", "bw_fallback": 200, "tpg_fallback": 0.45 },
+    { "vram_min_mb": 0,     "label": "核显/无独显", "bw_fallback": 30,  "tpg_fallback": 0.30 }
+  ],
+
+  "speed_targets": [
+    { "tier": "旗舰", "min": 25, "max": 40 },
+    { "tier": "高端", "min": 20, "max": 35 },
+    { "tier": "中高端", "min": 15, "max": 30 },
+    { "tier": "中端", "min": 12, "max": 25 },
+    { "tier": "入门", "min": 8,  "max": 18 },
+    { "tier": "核显/无独显", "min": 5, "max": 10 }
+  ]
+}

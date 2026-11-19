@@ -45,8 +45,8 @@ const TRANSLATIONS = {
         'chat.stop': '停止',
         'chat.thinking': '思考过程',
         'chat.new_session': '新会话已创建，开始对话吧！',
-        'chat.api_error': '⚠️ API请求失败 (HTTP {status}){detail}',
-        'chat.network_error': '⚠️ 网络请求失败: {msg}',
+        'chat.api_error': '[!] API请求失败 (HTTP {status}){detail}',
+        'chat.network_error': '[!] 网络请求失败: {msg}',
         'chat.welcome_title': 'Soul Agent Lite',
         'chat.welcome_desc': '欢迎使用 Soul Agent Lite<br>输入消息开始对话',
 
@@ -143,8 +143,8 @@ const TRANSLATIONS = {
         'chat.stop': 'Stop',
         'chat.thinking': 'Thinking',
         'chat.new_session': 'New session created, start chatting!',
-        'chat.api_error': '⚠️ API request failed (HTTP {status}){detail}',
-        'chat.network_error': '⚠️ Network request failed: {msg}',
+        'chat.api_error': '[!] API request failed (HTTP {status}){detail}',
+        'chat.network_error': '[!] Network request failed: {msg}',
         'chat.welcome_title': 'Soul Agent Lite',
         'chat.welcome_desc': 'Welcome to Soul Agent Lite<br>Start typing to begin a conversation',
 

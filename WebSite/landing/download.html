@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>下载 - Soul Agent Launcher</title>
+    <link rel="stylesheet" href="static/style.css">
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { min-height:100vh; background:var(--bg-primary, #0f0f1a); display:flex; flex-direction:column; }
+        
+        /* 主内容区：完全居中 */
+        .dl-main { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; }
+        
+        .dl-box { text-align:center; }
+        .dl-icon { width:56px; height:56px; margin:0 auto 20px; position:relative; display:flex; align-items:center; justify-content:center; }
+        .dl-icon .acrylic-bg { position:absolute; inset:0; border-radius:16px; background:linear-gradient(135deg,rgba(79,195,247,0.15),rgba(21,101,192,0.1)); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(79,195,247,0.2); }
+        .dl-icon .acrylic-bg::after { content:''; position:absolute; inset:2px; border-radius:14px; background:linear-gradient(135deg,rgba(255,255,255,0.08),transparent 60%); }
+        .dl-icon svg { position:relative; z-index:1; width:28px; height:28px; filter:drop-shadow(0 0 12px rgba(79,195,247,0.3)); }
+        
+        .dl-spinner { width:40px; height:40px; border:3px solid rgba(79,195,247,0.2); border-top-color:#4FC3F7; border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 24px; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        
+        .dl-title { font-size:24px; font-weight:600; margin-bottom:12px; color:var(--accent, #4FC3F7); }
+        .dl-desc { font-size:15px; color:var(--text-secondary, rgba(255,255,255,0.7)); line-height:1.7; }
+        .dl-desc a { color:var(--accent, #4FC3F7); text-decoration:underline; }
+        .dl-desc a:hover { color:#81D4FA; }
+        .dl-meta { font-size:12px; color:rgba(255,255,255,0.35); margin-top:12px; }
+        .dl-back { display:inline-block; margin-top:16px; font-size:13px; color:rgba(255,255,255,0.4); text-decoration:none; }
+        .dl-back:hover { color:var(--accent, #4FC3F7); }
+        
+        /* 底部区域：居中 */
+        .dl-footer { padding:24px 20px 40px; text-align:center; }
+        .dl-sep { width:60px; height:1px; margin:0 auto 24px; background:linear-gradient(90deg,transparent,rgba(79,195,247,0.3),transparent); }
+        .dl-alt-btn { display:inline-flex; align-items:center; gap:8px; padding:12px 32px; border-radius:8px; border:none; font-size:15px; font-weight:500; cursor:pointer; text-decoration:none; background:linear-gradient(135deg,#4FC3F7,#1565C0); color:#fff; transition:opacity .2s,transform .15s; }
+        .dl-alt-btn:hover { opacity:.88; transform:translateY(-1px); }
+        .dl-alt-btn:active { transform:translateY(0); opacity:.75; }
+        .dl-alt-text { font-size:13px; color:rgba(255,255,255,0.45); margin-top:10px; }
+    </style>
+</head>
+<body>
+    <div class="mica-bg">
+        <div class="mica-base"></div>
+        <div class="mica-orb-1"></div>
+        <div class="mica-orb-2"></div>
+    </div>
+    
+    <!-- 主内容区：完全居中 -->
+    <div class="dl-main">
+        <div class="dl-box">
+            <div class="dl-icon">
+                <div class="acrylic-bg"></div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="#4FC3F7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </div>
+            <div class="dl-spinner"></div>
+            <div class="dl-title">您的下载已开始</div>
+            <div class="dl-desc">
+                Soul Agent Launcher <strong id="dlVersion">{{ version }}</strong> 正在下载中<br>
+                <span id="dlFallback">如未开始下载请<a href="{{ download_url }}" id="dlLink">点击此处</a></span>
+            </div>
+            <div class="dl-meta" id="dlMeta"></div>
+            <a href="/" class="dl-back">← 返回首页</a>
+        </div>
+    </div>
+    
+    <!-- 底部区域：备用下载 -->
+    <div class="dl-footer">
+        <div class="dl-sep"></div>
+        <a href="https://1856625506.share.123pan.cn/123pan/KA18vd-ZfOYd" target="_blank" rel="noopener noreferrer" class="dl-alt-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            备用高速下载
+        </a>
+        <div class="dl-alt-text">下载太慢？试试备用链接！</div>
+    </div>
+
+    <script>
+        // 页面加载后直接跳转下载
+        (function() {
+            var url = document.getElementById('dlLink').href;
+            if (url) {
+                window.location.replace(url);
+            }
+        })();
+    </script>
+</body>
+</html>

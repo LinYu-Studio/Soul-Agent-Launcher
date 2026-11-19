@@ -12,6 +12,8 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, State};
+
+mod knowledge;
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 
@@ -499,10 +501,25 @@ fn start_model(
     soul_log("INFO", "model", &format!("start_model name='{}' port={} llama_port={} ctx={}", model_name, port, llama_port, ctx));
     soul_log("DEBUG", "model", &format!("  llama_path={} model_path={}", llama_path, model_path));
 
-    let child = new_hidden_cmd(&llama_path)
-        .args(["-m", &model_path, "--host", "127.0.0.1",
-               "--port", &llama_port.to_string(), "-c", &ctx.to_string(),
-               "-ngl", "99"])
+    // 检测 GPU 情况：多卡时自动选最强显卡
+    let gpu_info = detect_gpu_internal();
+    let main_gpu = if gpu_info.backend == "cuda" && gpu_info.gpu_count > 1 {
+        soul_log("INFO", "model", &format!("  多 GPU 检测: {} 个, 最强 #[{}] {} ({} MB) -> --main-gpu {}",
+            gpu_info.gpu_count, gpu_info.best_gpu_index, gpu_info.gpu_name,
+            gpu_info.vram_total_mb, gpu_info.best_gpu_index));
+        Some(gpu_info.best_gpu_index)
+    } else {
+        None
+    };
+
+    let mut cmd = new_hidden_cmd(&llama_path);
+    cmd.args(["-m", &model_path, "--host", "127.0.0.1",
+              "--port", &llama_port.to_string(), "-c", &ctx.to_string(),
+              "-ngl", "99"]);
+    if let Some(gpu_idx) = main_gpu {
+        cmd.args(["--main-gpu", &gpu_idx.to_string()]);
+    }
+    let child = cmd
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -675,6 +692,19 @@ fn stop_all_models(state: State<RunningModelsState>) -> Result<String, String> {
     let msg = format!("已停止 {} 个模型", count);
     soul_log("INFO", "model", &msg);
     Ok(msg)
+}
+
+/// 获取模型直连 llama 端口（绕过代理，用于工具调用等场景）
+#[tauri::command]
+fn get_model_llama_port(model_name: String, state: State<RunningModelsState>) -> Result<u16, String> {
+    let models = state.models.lock().map_err(|e| e.to_string())?;
+    for m in models.iter() {
+        if m.name == model_name {
+            soul_log("DEBUG", "model", &format!("get_model_llama_port: {} → {}", model_name, m.llama_port));
+            return Ok(m.llama_port);
+        }
+    }
+    Err(format!("未找到运行中的模型: {}", model_name))
 }
 
 /// 启动服务器（启动 llama-server + 代理，支持待机模式）
@@ -1506,12 +1536,22 @@ fn emit_progress(app_handle: &tauri::AppHandle, progress: u32, message: &str) ->
 // ============================================================
 
 /// GPU 信息
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, Default)]
 struct GpuInfo {
     backend: String,
     gpu_name: String,
     cuda_version: Option<String>,
     package_key: String,
+    #[serde(default)]
+    gpu_count: u32,
+    #[serde(default)]
+    best_gpu_index: u32,
+    #[serde(default)]
+    vram_total_mb: u64,
+    #[serde(default)]
+    all_gpu_names: Vec<String>,
+    #[serde(default)]
+    all_vram_mb: Vec<u64>,
 }
 
 /// 检测 GPU 和 CUDA 版本
@@ -1521,15 +1561,57 @@ fn detect_gpu() -> GpuInfo {
 }
 
 fn detect_gpu_internal() -> GpuInfo {
-    // 使用 new_hidden_cmd 防止弹 CMD 窗口（Release 构建中 windows_subsystem="windows"）
+    // ── 多 GPU 检测：一次 nvidia-smi 读出所有 GPU ──
     let mut cmd = new_hidden_cmd("nvidia-smi");
-    cmd.args(["--query-gpu=name,driver_version", "--format=csv,noheader"]);
+    cmd.args(["--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits"]);
     match cmd.output() {
         Ok(output) if output.status.success() => {
             let text = String::from_utf8_lossy(&output.stdout);
-            let gpu_name = text.trim().to_string();
-            let driver_ver = gpu_name.split(',').nth(1).unwrap_or("").trim();
-            let major = driver_ver.split('.').next().unwrap_or("0").parse::<u32>().unwrap_or(0);
+            let mut all_names: Vec<String> = Vec::new();
+            let mut all_vram: Vec<u64> = Vec::new();
+            let mut best_idx: u32 = 0;
+            let mut best_vram: u64 = 0;
+            let mut driver_ver = String::new();
+
+            for line in text.lines() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 3 {
+                    if let Ok(idx) = parts[0].parse::<u32>() {
+                        let name = parts[1].to_string();
+                        let vram = parts[2].parse::<u64>().unwrap_or(0);
+                        all_names.push(name);
+                        all_vram.push(vram);
+                        if vram > best_vram {
+                            best_vram = vram;
+                            best_idx = idx;
+                        }
+                    }
+                }
+                // 取第一行的 driver_version（如果含逗号前的驱动版本）
+                if driver_ver.is_empty() && parts.len() >= 2 {
+                    if let Some(dv) = parts[1].split('.').next() {
+                        driver_ver = dv.to_string();
+                    }
+                }
+            }
+
+            if all_names.is_empty() {
+                // nvidia-smi 成功但没解析出 GPU（极少情况）
+                return GpuInfo {
+                    backend: "cuda".to_string(),
+                    gpu_name: "NVIDIA GPU".to_string(),
+                    cuda_version: Some("12.4".to_string()),
+                    package_key: "cuda-12.4".to_string(),
+                    gpu_count: 0,
+                    best_gpu_index: 0,
+                    vram_total_mb: 0,
+                    all_gpu_names: vec![],
+                    all_vram_mb: vec![],
+                };
+            }
+
+            // 用第一块 GPU 的驱动版本来确定 CUDA 版本
+            let major = driver_ver.parse::<u32>().unwrap_or(0);
             let (cuda_ver, package_key) = if major >= 570 {
                 ("13.0".to_string(), "cuda-13.3".to_string())
             } else if major >= 525 {
@@ -1537,12 +1619,21 @@ fn detect_gpu_internal() -> GpuInfo {
             } else {
                 ("12.0".to_string(), "cuda-12.4".to_string())
             };
-            soul_log("DEBUG", "gpu", &format!("detect_gpu nvidia-smi 成功: driver={} package={}", driver_ver, package_key));
+
+            let best_name = all_names.get(best_idx as usize).cloned().unwrap_or_default();
+            soul_log("INFO", "gpu", &format!("detect_gpu: {} GPUs, 最强 #[{}] {} ({} MB)",
+                all_names.len(), best_idx, best_name, best_vram));
+
             return GpuInfo {
                 backend: "cuda".to_string(),
-                gpu_name,
+                gpu_name: best_name,
                 cuda_version: Some(cuda_ver),
-                package_key: package_key.to_string(),
+                package_key,
+                gpu_count: all_names.len() as u32,
+                best_gpu_index: best_idx,
+                vram_total_mb: best_vram,
+                all_gpu_names: all_names,
+                all_vram_mb: all_vram,
             };
         }
         Ok(output) => {
@@ -1560,6 +1651,7 @@ fn detect_gpu_internal() -> GpuInfo {
             gpu_name: "Vulkan GPU".to_string(),
             cuda_version: None,
             package_key: "vulkan-x64".to_string(),
+            ..Default::default()
         };
     }
 
@@ -1569,6 +1661,7 @@ fn detect_gpu_internal() -> GpuInfo {
         gpu_name: format!("CPU ({})", arch),
         cuda_version: None,
         package_key: format!("cpu-{}", arch),
+        ..Default::default()
     }
 }
 
@@ -2453,6 +2546,24 @@ fn check_modelscope_available() -> bool {
     available
 }
 
+/// 检查指定路径所在磁盘的剩余空间（字节）
+#[tauri::command]
+fn check_disk_space(path: String) -> Result<u64, String> {
+    use std::path::Path;
+    let p = Path::new(&path);
+    let root = if p.is_dir() { p } else { p.parent().unwrap_or(Path::new(".")) };
+    match fs2::available_space(root) {
+        Ok(bytes) => {
+            soul_log("INFO", "disk", &format!("check_disk_space: path={} available={}", path, bytes));
+            Ok(bytes)
+        }
+        Err(e) => {
+            soul_log("WARN", "disk", &format!("check_disk_space 失败: {}", e));
+            Err(format!("无法检测磁盘空间: {}", e))
+        }
+    }
+}
+
 /// 自动安装 modelscope SDK（静默安装，发射进度事件）
 #[tauri::command]
 async fn install_modelscope(app_handle: tauri::AppHandle) -> Result<String, String> {
@@ -2469,9 +2580,33 @@ async fn install_modelscope(app_handle: tauri::AppHandle) -> Result<String, Stri
         "progress": 10, "message": "正在安装 modelscope SDK..."
     }));
 
-    // 使用阿里云镜像安装 modelscope
-    let child = new_hidden_cmd("pip")
-        .args(["install", "modelscope", "-i", "https://mirrors.aliyun.com/pypi/simple/"])
+    // 确保 pip 可用，否则自动安装
+    let pip_ready = new_hidden_cmd("pip").arg("--version").output().is_ok()
+        || new_hidden_cmd("python").args(["-m", "pip", "--version"]).output().is_ok();
+    if !pip_ready {
+        soul_log("INFO", "modelscope", "pip 未安装，开始自动安装 pip");
+        let _ = app_handle.emit("ms-install-progress", serde_json::json!({
+            "progress": 20, "message": "正在安装 pip..."
+        }));
+        let pip_out = new_hidden_cmd("python")
+            .args(["-m", "ensurepip", "--upgrade", "--default-pip"])
+            .output()
+            .map_err(|e| format!("启动 pip 安装失败: {}", e))?;
+        if !pip_out.status.success() {
+            let err = String::from_utf8_lossy(&pip_out.stderr).to_string();
+            soul_log("ERROR", "modelscope", &format!("pip 自动安装失败: {}", err));
+            return Err(format!("pip 自动安装失败，请手动安装 pip 后再试: {}", err));
+        }
+        soul_log("INFO", "modelscope", "pip 安装成功");
+    }
+
+    let _ = app_handle.emit("ms-install-progress", serde_json::json!({
+        "progress": 40, "message": "正在安装 modelscope..."
+    }));
+
+    // 使用阿里云镜像安装 modelscope（用 python -m pip 更可靠）
+    let child = new_hidden_cmd("python")
+        .args(["-m", "pip", "install", "modelscope", "-i", "https://mirrors.aliyun.com/pypi/simple/"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -4146,6 +4281,7 @@ fn main() {
         .manage(SleepMonitor {
             entries: Mutex::new(Vec::new()),
         })
+        .manage(knowledge::KnowledgeState::new())
         .invoke_handler(tauri::generate_handler![
             check_server,
             check_server_port,
@@ -4172,6 +4308,7 @@ fn main() {
             search_models,
             list_official_models,
             check_modelscope_available,
+            check_disk_space,
             install_modelscope,
             list_model_files,
             read_token,
@@ -4184,6 +4321,7 @@ fn main() {
             start_model,
             unload_model,
             list_running_models,
+            get_model_llama_port,
             stop_all_models,
             create_session,
             list_sessions,
@@ -4200,6 +4338,17 @@ fn main() {
             check_pip_installed,
             install_pip,
             detect_cpu,
+            knowledge::kb_add_folder,
+            knowledge::kb_list_folders,
+            knowledge::kb_remove_folder,
+            knowledge::kb_index_file,
+            knowledge::kb_search,
+            knowledge::kb_get_context,
+            knowledge::kb_toggle,
+            knowledge::kb_clear_temp,
+            knowledge::kb_status,
+            knowledge::kb_embed_all,
+            knowledge::kb_read_file,
         ])
         .run(tauri::generate_context!())
         .expect("启动失败");

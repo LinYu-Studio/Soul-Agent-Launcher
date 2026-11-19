@@ -1,0 +1,26 @@
+# ===== 构建产物 =====
+src-tauri/target/
+src-tauri/gen/
+.vs/
+
+# ===== 大体积发布资源（打包时才需要，不入库）=====
+# llama.cpp b9568 后端包：从 llama.cpp releases 下载，或参考 build-llama/build-minimal.ps1 自编译
+resources/backends/*.zip
+# Python 静默安装器：python.org 下载 python-3.11.0-amd64.exe 放入 resources/python/
+resources/python/
+src-tauri/resources/python/
+src-tauri/lfs/
+
+# ===== 旧仓库副本与备份压缩包 =====
+Git/
+Git.zip
+
+# ===== 更新服务器运行时数据（含密码hash，勿入库）=====
+WebSite/downloads/
+WebSite/updates/*
+!WebSite/updates/current.json
+WebSite/config.json
+
+# ===== 系统杂项 =====
+Thumbs.db
+Desktop.ini
