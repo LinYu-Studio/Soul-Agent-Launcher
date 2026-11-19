@@ -536,6 +536,15 @@ fn start_model(
     soul_log("INFO", "model", &format!("start_model name='{}' port={} llama_port={} ctx={}", model_name, port, llama_port, ctx));
     soul_log("DEBUG", "model", &format!("  llama_path={} model_path={}", llama_path, model_path));
 
+    // 并发防护：同一模型文件禁止重复加载（避免显存双倍浪费/端口混乱）
+    if let Ok(models) = state.models.lock() {
+        if let Some(existing) = models.iter().find(|m| m.model_path == model_path) {
+            let msg = format!("模型已在运行中: {} (端口 {})，请先卸载后再加载", existing.name, existing.proxy_port);
+            soul_log("WARN", "model", &msg);
+            return Err(msg);
+        }
+    }
+
     let child = spawn_model_process(&llama_path, &model_path, llama_port, ctx)
         .map_err(|e| {
             soul_log_detail("ERROR", "model", "start_model 启动失败", &e);
