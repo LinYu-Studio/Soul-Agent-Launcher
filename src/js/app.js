@@ -8,7 +8,7 @@ const UPDATE_API_URL = 'https://sal.bszx.site/api/check-update';
 const SKIP_UPDATE_KEY = 'sal-skip-update';
 
 // 版本号唯一出处（需与 src-tauri/tauri.conf.json / Cargo.toml 保持一致）
-const APP_VERSION = '0.4.1';
+const APP_VERSION = '0.4.2';
 const APP_VERSION_LABEL = 'v' + APP_VERSION + '-Beta';
 
 async function checkUpdate(btn) {
