@@ -35,6 +35,7 @@ def get_latest_version():
     return {
         'latest_version': '0.3.2',
         'download_url': '/downloads/Soul Agent Launcher_0.3.2_x64_en-US.msi',
+        'sha256': '',
         'release_notes': '',
         'release_date': ''
     }
@@ -78,7 +79,7 @@ def download_page():
     """下载引导页面：自动触发下载，并提供手动下载链接"""
     info = get_latest_version()
     return render_template('download.html',
-        version=info.get('latest_version', '0.3.3'),
+        version=info.get('latest_version', '0.3.2'),
         download_url=info.get('download_url', '/download/latest'))
 
 @app.route('/BingSiteAuth.xml')

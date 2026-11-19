@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>使用教程 - Soul Agent Launcher v0.4.1</title>
+    <link rel="stylesheet" href="static/style.css">
+    <style>
+        .doc-wrap { max-width: 920px; margin: 0 auto; padding: 40px 20px 80px; }
+        .doc-header { text-align: center; margin-bottom: 32px; }
+        .doc-header h1 { font-size: 32px; margin-bottom: 8px; }
+        .doc-header .doc-meta { color: #888; font-size: 13px; }
+        .doc-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 32px 36px; margin-bottom: 24px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+        .doc-card h2 { font-size: 22px; border-left: 4px solid #4f8cff; padding-left: 12px; margin-bottom: 16px; }
+        .doc-card h3 { font-size: 17px; margin: 20px 0 10px; color: #1f2937; }
+        .doc-card p, .doc-card li { font-size: 14px; line-height: 1.8; color: #374151; }
+        .doc-card ul { padding-left: 22px; margin: 8px 0; }
+        .doc-card pre { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 14px 18px; font-size: 13px; line-height: 1.7; overflow-x: auto; white-space: pre-wrap; }
+        .doc-card code { background: #eef2ff; color: #4338ca; border-radius: 4px; padding: 1px 6px; font-size: 13px; }
+        .doc-card pre code { background: transparent; color: inherit; padding: 0; }
+        .doc-card table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+        .doc-card th, .doc-card td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+        .doc-card th { background: #f8fafc; }
+        .doc-note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin: 10px 0; }
+        .doc-new { display: inline-block; background: #4f8cff; color: #fff; font-size: 11px; border-radius: 4px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+        .doc-toc { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px 28px; margin-bottom: 24px; }
+        .doc-toc h2 { font-size: 16px; margin-bottom: 10px; }
+        .doc-toc ol { padding-left: 22px; columns: 2; font-size: 13px; }
+        .doc-toc a { color: #4f8cff; text-decoration: none; }
+        .doc-toc a:hover { text-decoration: underline; }
+        .footer-note { text-align: center; color: #999; font-size: 12px; margin-top: 40px; }
+        body { background: #f1f5f9; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="static/thinker-icon.png" alt="Soul Agent" width="28" height="28">
+                <span>Soul Agent</span>
+            </a>
+            <nav>
+                <ul class="nav-links">
+                    <li><a href="/#features">功能特性</a></li>
+                    <li><a href="/#quick-start">快速开始</a></li>
+                    <li><a href="/#download">下载</a></li>
+                </ul>
+            </nav>
+            <a href="/#download" class="download-btn">立即下载</a>
+        </div>
+    </header>
+
+    <div class="doc-wrap">
+        <div class="doc-header">
+            <h1>Soul Agent Launcher 使用教程</h1>
+            <div class="doc-meta">版本 0.4.1 | 更新日期 2026-11-20</div>
+        </div>
+
+        <div class="doc-toc">
+            <h2>目录</h2>
+            <ol>
+                <li><a href="#s1">简介</a></li>
+                <li><a href="#s2">安装与卸载</a></li>
+                <li><a href="#s3">首次启动与自动配置</a></li>
+                <li><a href="#s4">界面概览</a></li>
+                <li><a href="#s5">首页 —— 服务总控</a></li>
+                <li><a href="#s6">模型管理</a></li>
+                <li><a href="#s7">启动页 —— 高级控制与智能待机</a></li>
+                <li><a href="#s8">SA Lite —— 极简对话</a></li>
+                <li><a href="#s9">会话管理与全局搜索</a></li>
+                <li><a href="#s10">设置与环境修复</a></li>
+                <li><a href="#s11">自动更新</a></li>
+                <li><a href="#s12">多语言支持</a></li>
+                <li><a href="#s13">常见问题</a></li>
+            </ol>
+        </div>
+
+        <div class="doc-card" id="s1">
+            <h2>1. 简介</h2>
+            <p><strong>Soul Agent Launcher（SAL）</strong>是一个 Windows 桌面应用，用于启动、管理和监控 llama.cpp 推理服务。图形化界面替代命令行，支持 GPU 后端自动检测、模型下载、流式对话、会话管理与全局搜索。</p>
+            <table>
+                <tr><th>特性</th><th>说明</th></tr>
+                <tr><td>GPU 自动检测</td><td>自动识别 NVIDIA（CUDA）、AMD/Intel（Vulkan）、CPU 后端</td></tr>
+                <tr><td>一键启动服务</td><td>点按钮运行 llama-server，无需命令行</td></tr>
+                <tr><td>多模型管理</td><td>同时运行多个模型，每个独立端口</td></tr>
+                <tr><td>智能待机 <span class="doc-new">NEW</span></td><td>平时零进程零显存，请求命中自动唤醒（/chat 与 OpenAI 双端点）</td></tr>
+                <tr><td>崩溃自动恢复 <span class="doc-new">NEW</span></td><td>进程意外退出自动重启（最多 3 次）</td></tr>
+                <tr><td>流式对话</td><td>内置 SA Lite 聊天，支持深度思考显示与多模态</td></tr>
+                <tr><td>会话管理与全局搜索 <span class="doc-new">NEW</span></td><td>保存/加载聊天历史，跨会话全文搜索，长对话自动总结</td></tr>
+                <tr><td>应用内更新 <span class="doc-new">NEW</span></td><td>下载 → SHA256 校验 → 静默安装 → 自动重启</td></tr>
+                <tr><td>环境修复 <span class="doc-new">NEW</span></td><td>Python/pip/ModelScope/加速端 一键检测重装</td></tr>
+                <tr><td>开机自启 <span class="doc-new">NEW</span></td><td>托盘模式后台启动，自动恢复上次运行的模型</td></tr>
+                <tr><td>多语言</td><td>中文/英文自动切换</td></tr>
+            </table>
+            <h3>技术栈</h3>
+            <ul>
+                <li><strong>前端框架</strong>：Tauri v2（Rust + WebView）</li>
+                <li><strong>推理引擎</strong>：llama.cpp（CUDA / Vulkan / CPU）</li>
+                <li><strong>本地存储</strong>：JSON 文件（会话、配置、模型列表）</li>
+                <li><strong>更新服务</strong>：独立 Flask 服务器（sal.bszx.site）</li>
+            </ul>
+        </div>
+
+        <div class="doc-card" id="s2">
+            <h2>2. 安装与卸载</h2>
+            <h3>系统要求</h3>
+            <ul>
+                <li>Windows 10 / 11（64 位），x86_64 CPU（AVX2+），建议内存 16GB+</li>
+                <li>GPU（可选）：NVIDIA 驱动 ≥ 525（推荐 ≥ 570）；AMD/Intel 走 Vulkan</li>
+                <li>磁盘：离线完整版约 460MB，在线版约 15MB</li>
+            </ul>
+            <h3>安装 / 卸载</h3>
+            <p>双击 MSI 按向导安装（默认 <code>C:\Program Files\Soul Agent Launcher\</code>）。卸载走系统设置 → 应用。卸载不影响用户数据（位于 <code>%APPDATA%\Soul-Agent-Launcher\</code>）。</p>
+            <table>
+                <tr><th>安装包类型</th><th>大小</th><th>说明</th></tr>
+                <tr><td>离线完整版 MSI</td><td>~460MB</td><td>内置全部 GPU 后端，无网络可用</td></tr>
+                <tr><td>在线轻量版 MSI</td><td>~15MB</td><td>需联网下载或预置 llama.cpp 包</td></tr>
+            </table>
+        </div>
+
+        <div class="doc-card" id="s3">
+            <h2>3. 首次启动与自动配置</h2>
+            <p>启动流程：<code>启动 → 检测硬件 → 匹配后端包 → 解压 → 生成配置 → 就绪</code>（十步自动化，每步失败可跳过或重试）。</p>
+            <h3>硬件自动检测</h3>
+            <ul>
+                <li><strong>NVIDIA CUDA</strong>：驱动 ≥ 570 → CUDA 13.3；≥ 525 → CUDA 12.4</li>
+                <li><strong>Vulkan</strong>：AMD / Intel 等</li>
+                <li><strong>CPU 兜底</strong>：无 GPU 时自动选用</li>
+            </ul>
+            <h3>内置后端（离线完整版）</h3>
+            <table>
+                <tr><th>包名</th><th>大小</th><th>适用</th></tr>
+                <tr><td>cuda-13.3</td><td>151MB</td><td>RTX 40xx Super / 50xx</td></tr>
+                <tr><td>cuda-12.4</td><td>254MB</td><td>GTX/RTX（较老）</td></tr>
+                <tr><td>vulkan-x64</td><td>33MB</td><td>AMD / Intel 独显</td></tr>
+                <tr><td>cpu-x64</td><td>16MB</td><td>任何 x86 处理器</td></tr>
+            </table>
+            <h3>Python / ModelScope</h3>
+            <p>下载模型需要 Python + modelscope。缺失时 SAL 会静默安装（弹出 UAC 授权）。也可以随时在 <strong>设置 → 环境修复</strong> 里一键检测/重装。</p>
+        </div>
+
+        <div class="doc-card" id="s4">
+            <h2>4. 界面概览</h2>
+            <p>左侧边栏导航：🏠 首页 · 📦 模型 · 🚀 启动 · 💬 会话 · 💭 对话 · 📚 知识库 · ⚙️ 设置；底部显示版本号。窗口关闭默认最小化到托盘（托盘菜单可退出/查看日志）。</p>
+        </div>
+
+        <div class="doc-card" id="s5">
+            <h2>5. 首页 —— 服务总控</h2>
+            <p>首页显示服务状态灯（🟢 运行中 / 🟠 加载中 / ⚫ 未启动）、启停按钮、一键部署卡与 AI 跑分卡。状态每 5 秒自动刷新；模型加载中（503）会显示「模型正在加载中~马上就好~」。</p>
+        </div>
+
+        <div class="doc-card" id="s6">
+            <h2>6. 模型管理</h2>
+            <p>「模型」页三个标签：本地模型 / 魔塔社区 / 官方模型。支持所有 <strong>GGUF 格式</strong>模型，可从魔塔搜索下载或手动放入 <code>%APPDATA%\Soul-Agent-Launcher\models\</code>。</p>
+            <p>加载模型时若估算显存需求超出当前可用显存，会弹出预警，可选择继续或取消。</p>
+        </div>
+
+        <div class="doc-card" id="s7">
+            <h2>7. 启动页 —— 高级控制与智能待机</h2>
+            <h3>服务参数</h3>
+            <table>
+                <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+                <tr><td>端口</td><td>20000</td><td>主服务端口</td></tr>
+                <tr><td>上下文</td><td>4096</td><td>推理上下文长度</td></tr>
+                <tr><td>连接数</td><td>8</td><td>最大并发连接</td></tr>
+            </table>
+            <h3>智能待机 <span class="doc-new">NEW</span></h3>
+            <p>「已启动模型」列表中每个模型可点「待机」/「唤醒」：</p>
+            <pre>待机 → llama 进程完全停止（显存/内存零占用）
+请求 → 命中待机模型的请求自动唤醒（/chat 与 /v1/chat/completions 双端点）
+就绪 → /health 通过后自动转发，客户端无感</pre>
+            <ul>
+                <li><strong>空闲自动待机</strong>：设置 → 默认参数 → 空闲自动待机（关闭/5/10/30 分钟），空闲超时自动释放显存（正在生成的请求不会被打断）</li>
+                <li><strong>预唤醒</strong>：聊天页点击输入框即预唤醒当前待机模型，打字时模型已在加载</li>
+                <li><strong>多模态</strong>：设置中配置 mmproj 路径后，多模态模型待机唤醒后视觉能力原样保留</li>
+            </ul>
+            <h3>崩溃自动恢复 <span class="doc-new">NEW</span></h3>
+            <p>后台监控线程每 5 秒巡检，llama 进程意外退出时按原参数自动重启（最多 3 次），控制台与托盘提示。自动待机/崩溃恢复在托盘后台运行时同样生效。</p>
+            <h3>手动编译（高级）</h3>
+            <p>设置 → 极致精简编译：选择 build-minimal.ps1 后一键编译 CPU-only 精简版 llama-server（需 CMake + MSVC）。</p>
+        </div>
+
+        <div class="doc-card" id="s8">
+            <h2>8. SA Lite —— 极简对话</h2>
+            <ul>
+                <li>Enter 发送 / Shift+Enter 换行；支持流式输出与打字动画</li>
+                <li>深度思考块（可折叠）；多模态模型可发图片</li>
+                <li>上下文环形指示器：80% 静默自动总结、95% 强制总结，总结注入后续请求</li>
+                <li>模型快切下拉：切换到待机中的模型时，聚焦输入框即自动预唤醒</li>
+            </ul>
+        </div>
+
+        <div class="doc-card" id="s9">
+            <h2>9. 会话管理与全局搜索</h2>
+            <p>「会话」页管理历史会话（新建/重命名/删除）。数据存储于 <code>%APPDATA%\Soul-Agent-Launcher\sessions\</code>。</p>
+            <h3>全局搜索 <span class="doc-new">NEW</span></h3>
+            <p>会话页顶部搜索框可<strong>跨全部会话</strong>搜索消息内容（不区分大小写），命中结果显示会话标题、角色与上下文片段，点击直接跳转到对应会话。</p>
+        </div>
+
+        <div class="doc-card" id="s10">
+            <h2>10. 设置与环境修复</h2>
+            <h3>通用设置</h3>
+            <p>llama.cpp 路径、模型目录、默认端口（20000）、默认上下文（4096）、语言、主题。</p>
+            <h3>行为 <span class="doc-new">NEW</span></h3>
+            <ul>
+                <li><strong>退出时自动卸载模型</strong>：关闭窗口后清理所有模型进程</li>
+                <li><strong>开机自启动（托盘模式）</strong>：系统启动后台运行，设置立即生效</li>
+                <li><strong>启动时自动恢复上次运行的模型</strong>：下次启动自动重新加载</li>
+            </ul>
+            <h3>环境修复 <span class="doc-new">NEW</span></h3>
+            <p>Python / pip / ModelScope / llama.cpp 加速端四个组件的状态灯与一键重装。打开设置页自动体检一次；组件异常点「一键修复」（可能弹出权限窗口）。加速端修复按当前硬件自动匹配。</p>
+            <h3>mmproj（多模态）</h3>
+            <p>设置 → 默认参数 → mmproj 路径：多模态模型启动时自动附加 <code>--mmproj</code>，待机唤醒后原样恢复。注意：此路径会附加到所有启动的模型，混用纯文本模型时请勿填写。</p>
+        </div>
+
+        <div class="doc-card" id="s11">
+            <h2>11. 自动更新</h2>
+            <h3>检查机制</h3>
+            <ul>
+                <li>自动检查：启动后 3 秒（服务器 sal.bszx.site）</li>
+                <li>手动检查：设置 → 检查更新</li>
+            </ul>
+            <h3>应用内更新 <span class="doc-new">NEW</span></h3>
+            <pre>下载（按钮内嵌进度条）→ SHA256 完整性校验 → UAC 授权
+→ 关闭旧版 → 静默安装 → 自动启动新版</pre>
+            <p>校验失败（安装包损坏）会拒绝安装并提示重新下载；取消 UAC 授权则不会安装，可稍后重试。</p>
+            <h3>管理后台</h3>
+            <p><code>https://sal.bszx.site/admin</code>：登录后填写版本号与说明、上传 MSI（自动计算 SHA256）、选择是否强制更新、发布。</p>
+        </div>
+
+        <div class="doc-card" id="s12">
+            <h2>12. 多语言支持</h2>
+            <p>简体中文 / English。系统语言自动切换，也可在设置中手动选择（保存到本地）。切换即时生效于导航、状态、会话列表与输入框等界面文案。</p>
+        </div>
+
+        <div class="doc-card" id="s13">
+            <h2>13. 常见问题</h2>
+            <h3>Q：一直显示「未启动」？</h3>
+            <p>首次安装需自动解压后端包，稍等几秒；端口被占用时更改默认端口；后端包不完整时重新安装完整版 MSI。</p>
+            <h3>Q：模型加载报错？</h3>
+            <p>OOM → 降低上下文或换小模型；文件损坏 → 重新下载；格式必须为 GGUF。显存预警弹出时说明可用显存不足。</p>
+            <h3>Q：503 "Loading model"？</h3>
+            <p>正常现象，模型正在加载显存，10-30 秒后自动变为运行中。</p>
+            <h3>Q：模型待机后显存真的释放了吗？</h3>
+            <p>是。待机完全停止该模型的 llama 进程，显存立即归零，仅保留代理端口。下一次请求（/chat 或 OpenAI 端点）自动唤醒并等待加载完成，无需手动操作。</p>
+            <h3>Q：为什么待机后再次请求要等一会儿？</h3>
+            <p>待机状态下模型不在显存，请求命中时自动重新加载（数秒~数十秒）。技巧：聊天页点击输入框即开始预唤醒，打字时模型已在加载。</p>
+            <h3>Q：按钮点了没反应？</h3>
+            <p>关闭重开应用；反复出现则重装 MSI；检查日志 <code>%APPDATA%\SoulLogs\</code>（托盘菜单「查看日志」直达）。</p>
+            <h3>Q：聊天记录不见了？</h3>
+            <p>检查 <code>%APPDATA%\Soul-Agent-Launcher\sessions\</code>，文件存在则重启应用自动加载。</p>
+            <h3>Q：如何手动添加模型？</h3>
+            <p>GGUF 文件放入 <code>%APPDATA%\Soul-Agent-Launcher\models\</code>，模型页点刷新。</p>
+            <h3>Q：更新后配置会丢失吗？</h3>
+            <p>不会。用户数据在 <code>%APPDATA%\Soul-Agent-Launcher\</code>，与安装目录分离。</p>
+            <h3>Q：日志在哪里？</h3>
+            <p><code>%APPDATA%\SoulLogs\soul_YYYY-MM-DD.log</code>，托盘菜单「查看日志」直达。</p>
+        </div>
+
+        <div class="footer-note">Soul Agent Launcher · GPL v3 开源 · 如有疑问欢迎在官网反馈区留言</div>
+    </div>
+</body>
+</html>
