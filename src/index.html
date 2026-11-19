@@ -748,6 +748,24 @@
                             <option value="32768">32K</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label>空闲自动待机</label>
+                        <select id="standbyIdleMin" class="form-select" style="width:120px;">
+                            <option value="0" selected>关闭</option>
+                            <option value="5">5 分钟</option>
+                            <option value="10">10 分钟</option>
+                            <option value="30">30 分钟</option>
+                        </select>
+                        <div class="form-hint">空闲后自动释放显存，下次请求自动唤醒（约数秒~数十秒）</div>
+                    </div>
+                    <div class="form-group">
+                        <label>mmproj 路径（多模态模型可选）</label>
+                        <div class="input-with-btn">
+                            <input type="text" id="mmprojPath" class="form-input" placeholder="视觉投影模型路径，留空 = 纯文本模式">
+                            <button class="btn" onclick="selectFilePath('mmprojPath')">选择</button>
+                        </div>
+                        <div class="form-hint">多模态模型启动时自动附加 --mmproj；待机唤醒后原样恢复</div>
+                    </div>
                 </div>
 
                 <div class="settings-section">

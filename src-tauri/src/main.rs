@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, State};
@@ -350,6 +350,28 @@ static SERVER_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 模型/服务自动重启的最大尝试次数，超过则放弃并通知前端
 const MODEL_MAX_RESTARTS: u32 = 3;
 
+/// 全局 AppHandle（setup 时写入）：代理线程/监控线程借此访问 Tauri 状态与发事件
+static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+/// 多模型待机注册表：待机中的模型（llama 进程已停止 → 显存/内存零占用，
+/// 仅保留代理端口与路由表；命中请求时自动唤醒）
+#[derive(Clone)]
+struct StandbyInfo {
+    model_path: String,
+    llama_port: u16,
+    ctx: u32,
+    mmproj: Option<String>,
+    /// 唤醒去重锁：并发请求命中同一待机模型时只有一个真正拉起进程
+    loading: Arc<AtomicBool>,
+}
+static STANDBY_REGISTRY: OnceLock<Mutex<HashMap<String, StandbyInfo>>> = OnceLock::new();
+fn get_standby_registry() -> &'static Mutex<HashMap<String, StandbyInfo>> {
+    STANDBY_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 空闲自动待机阈值（分钟，0=关闭；由前端设置页写入，监控线程扫描执行）
+static STANDBY_IDLE_MIN: AtomicU32 = AtomicU32::new(0);
+
 /// 全局模型路由表：模型名 → proxy_port（供 proxy 线程读取）
 static MODEL_ROUTER: OnceLock<Mutex<HashMap<String, u16>>> = OnceLock::new();
 fn get_model_router() -> &'static Mutex<HashMap<String, u16>> {
@@ -376,6 +398,12 @@ struct RunningModel {
     /// 意外崩溃次数（自动重启计数）
     #[serde(default)]
     crash_count: u32,
+    /// 多模态投影模型路径（多模态模型启动时随 --mmproj 传入；待机唤醒时原样恢复）
+    #[serde(default)]
+    mmproj: Option<String>,
+    /// 最近一次收到请求的 Unix 秒（代理更新；空闲自动待机的依据）
+    #[serde(default)]
+    last_active: u64,
 }
 
 #[allow(dead_code)]
@@ -505,7 +533,7 @@ fn check_standby(state: State<ServerState>) -> Result<bool, String> {
 // ============================================================
 
 /// 启动 llama-server 加载指定模型（全量 GPU 卸载，多卡自动选 --main-gpu）
-fn spawn_model_process(llama_path: &str, model_path: &str, llama_port: u16, ctx: u32) -> Result<std::process::Child, String> {
+fn spawn_model_process(llama_path: &str, model_path: &str, llama_port: u16, ctx: u32, mmproj: Option<&str>) -> Result<std::process::Child, String> {
     let gpu_info = detect_gpu_internal();
     let mut cmd = new_hidden_cmd(llama_path);
     cmd.args(["-m", model_path, "--host", "127.0.0.1",
@@ -515,6 +543,12 @@ fn spawn_model_process(llama_path: &str, model_path: &str, llama_port: u16, ctx:
         soul_log("INFO", "model", &format!("  多 GPU 检测: {} 个 -> --main-gpu {}",
             gpu_info.gpu_count, gpu_info.best_gpu_index));
         cmd.args(["--main-gpu", &gpu_info.best_gpu_index.to_string()]);
+    }
+    // 多模态：mmproj 投影模型随主模型一起加载（待机唤醒时原样恢复）
+    if let Some(mp) = mmproj {
+        if !mp.trim().is_empty() {
+            cmd.args(["--mmproj", mp.trim()]);
+        }
     }
     cmd.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -531,10 +565,12 @@ fn start_model(
     model_name: String,
     port: u16,
     ctx: u32,
+    mmproj: Option<String>,
 ) -> Result<String, String> {
     let llama_port = port + 1;
-    soul_log("INFO", "model", &format!("start_model name='{}' port={} llama_port={} ctx={}", model_name, port, llama_port, ctx));
+    soul_log("INFO", "model", &format!("start_model name='{}' port={} llama_port={} ctx={} mmproj={:?}", model_name, port, llama_port, ctx, mmproj));
     soul_log("DEBUG", "model", &format!("  llama_path={} model_path={}", llama_path, model_path));
+    let mmproj_clean = mmproj.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
 
     // 并发防护：同一模型文件禁止重复加载（避免显存双倍浪费/端口混乱）
     if let Ok(models) = state.models.lock() {
@@ -545,7 +581,7 @@ fn start_model(
         }
     }
 
-    let child = spawn_model_process(&llama_path, &model_path, llama_port, ctx)
+    let child = spawn_model_process(&llama_path, &model_path, llama_port, ctx, mmproj_clean.as_deref())
         .map_err(|e| {
             soul_log_detail("ERROR", "model", "start_model 启动失败", &e);
             e
@@ -573,6 +609,8 @@ fn start_model(
         status: "running".to_string(),
         persistent: true,
         crash_count: 0,
+        mmproj: mmproj_clean,
+        last_active: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
     };
 
     // 注册到全局路由表
@@ -619,6 +657,10 @@ fn unload_model(state: State<RunningModelsState>, model_name: String) -> Result<
     if let Ok(mut router) = get_model_router().lock() {
         router.remove(&model.name);
     }
+    // 若在待机注册表中（卸载待机模型）同步移除
+    if let Ok(mut reg) = get_standby_registry().lock() {
+        reg.remove(&model.name);
+    }
 
     // 通过 PID kill 进程
     if let Ok(pid) = model.pid.parse::<u32>() {
@@ -652,7 +694,7 @@ fn list_running_models(state: State<RunningModelsState>) -> Result<Vec<RunningMo
 
     let mut models = state.models.lock().map_err(|e| e.to_string())?;
     for model in models.iter_mut() {
-        if model.status == "restarting" { continue; }
+        if model.status == "restarting" || model.status == "standby" { continue; }
         if let Ok(pid) = model.pid.parse::<u32>() {
             model.vram_mb = vram_map.get(&pid).copied().unwrap_or(0);
         }
@@ -705,6 +747,10 @@ fn stop_all_models(state: State<RunningModelsState>) -> Result<String, String> {
     if let Ok(mut router) = get_model_router().lock() {
         router.clear();
     }
+    // 清空待机注册表
+    if let Ok(mut reg) = get_standby_registry().lock() {
+        reg.clear();
+    }
     for pid in pids {
         let _ = new_hidden_cmd("taskkill")
             .args(["/F", "/PID", &pid])
@@ -745,6 +791,7 @@ fn start_crash_monitor(app_handle: tauri::AppHandle) {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let _ = monitor_running_models(&app_handle);
             monitor_single_server(&app_handle);
+            auto_standby_sweep(&app_handle);
         }
     });
 }
@@ -761,7 +808,7 @@ fn monitor_running_models(app_handle: &tauri::AppHandle) -> Result<(), String> {
         let mut models = match state.models.lock() { Ok(m) => m, Err(e) => return Err(e.to_string()) };
         let mut dead = Vec::new();
         for m in models.iter_mut() {
-            if m.status == "restarting" { continue; }
+            if m.status == "restarting" || m.status == "standby" { continue; }
             if !is_pid_alive(&m.pid) {
                 m.crash_count += 1;
                 m.status = "restarting".to_string();
@@ -793,7 +840,7 @@ fn monitor_running_models(app_handle: &tauri::AppHandle) -> Result<(), String> {
         // 3) 按原参数重启（llama_path 从 config.json 读取）
         let llama_path = read_llama_path_from_config();
         let respawn = llama_path
-            .map(|lp| spawn_model_process(&lp, &d.model_path, d.llama_port, d.ctx));
+            .map(|lp| spawn_model_process(&lp, &d.model_path, d.llama_port, d.ctx, d.mmproj.as_deref()));
         match respawn {
             Some(Ok(mut child)) => {
                 let new_pid = child.id().to_string();
@@ -890,6 +937,170 @@ fn monitor_single_server(app_handle: &tauri::AppHandle) {
             let _ = app_handle.emit("server-crash-giveup", serde_json::json!({ "crash_count": count, "error": e.to_string() }));
         }
     }
+}
+
+// ============================================================
+// 多模型待机引擎：平时零进程零显存，请求命中自动唤醒（/chat 与 OpenAI 双端点统一）
+// ============================================================
+
+/// 进入待机（内部实现）：停 llama 进程 → 登记注册表 → 列表标记 standby
+fn sleep_model_internal(model_name: &str) -> Result<String, String> {
+    let handle = APP_HANDLE.get().ok_or("应用未初始化")?;
+    let st = handle.try_state::<RunningModelsState>().ok_or("状态不可用")?;
+    let (model_path, llama_port, ctx, mmproj, pid) = {
+        let mut models = st.models.lock().map_err(|e| e.to_string())?;
+        let m = models.iter_mut().find(|m| m.name == model_name)
+            .ok_or_else(|| format!("未找到运行中的模型: {}", model_name))?;
+        if m.status == "standby" {
+            return Err(format!("模型 {} 已处于待机", model_name));
+        }
+        (m.model_path.clone(), m.llama_port, m.ctx, m.mmproj.clone(), m.pid.clone())
+    };
+
+    // 有活跃推理会话时拒绝待机（不打断正在生成的请求）
+    if get_active_session_count(llama_port) > 0 {
+        return Err("有活跃会话，暂不能待机".to_string());
+    }
+
+    // 停止 llama 进程（显存/内存立即释放）
+    if let Ok(p) = pid.parse::<u32>() {
+        let _ = new_hidden_cmd("taskkill").args(["/F", "/PID", &p.to_string()]).output();
+    }
+
+    // 登记待机信息（唤醒所需全部参数）
+    if let Ok(mut reg) = get_standby_registry().lock() {
+        reg.insert(model_name.to_string(), StandbyInfo {
+            model_path, llama_port, ctx, mmproj,
+            loading: Arc::new(AtomicBool::new(false)),
+        });
+    }
+
+    // 更新运行列表
+    if let Some(st) = handle.try_state::<RunningModelsState>() {
+        if let Ok(mut models) = st.models.lock() {
+            if let Some(m) = models.iter_mut().find(|m| m.name == model_name) {
+                m.status = "standby".to_string();
+                m.pid = String::new();
+                m.vram_mb = 0;
+            }
+        }
+    }
+    let msg = format!("模型 {} 已进入待机（显存已释放，请求将自动唤醒）", model_name);
+    soul_log("INFO", "model", &msg);
+    Ok(msg)
+}
+
+/// 从待机唤醒（代理自动唤醒与手动唤醒共用）。
+/// 返回 Ok(true)=本次触发唤醒；Ok(false)=不在待机/已有唤醒进行中（调用方等待即可）。
+fn wake_standby_model(model_name: &str, app: Option<&tauri::AppHandle>) -> Result<bool, String> {
+    fn reset_loading(model_name: &str) {
+        if let Ok(reg) = get_standby_registry().lock() {
+            if let Some(i) = reg.get(model_name) { i.loading.store(false, Ordering::SeqCst); }
+        }
+    }
+
+    // 取待机信息并抢占 loading 锁（并发请求只有一个真正拉起进程）
+    let info = {
+        let reg = get_standby_registry().lock().map_err(|e| e.to_string())?;
+        let info = match reg.get(model_name) { Some(i) => i.clone(), None => return Ok(false) };
+        if info.loading.swap(true, Ordering::SeqCst) { return Ok(false); }
+        info
+    };
+
+    let llama_path = match read_llama_path_from_config() {
+        Some(p) => p,
+        None => { reset_loading(model_name); return Err("config.json 中未找到 llama_path，无法唤醒".to_string()); }
+    };
+    soul_log("INFO", "model", &format!("唤醒待机模型 '{}' (mmproj={:?})", model_name, info.mmproj));
+    let child = match spawn_model_process(&llama_path, &info.model_path, info.llama_port, info.ctx, info.mmproj.as_deref()) {
+        Ok(c) => c,
+        Err(e) => { reset_loading(model_name); return Err(e); }
+    };
+    let new_pid = child.id();
+
+    // 更新运行列表：恢复 PID 与状态（代理与后续请求立即正常路由）
+    let handle = APP_HANDLE.get().or(app);
+    if let Some(handle) = handle {
+        if let Some(st) = handle.try_state::<RunningModelsState>() {
+            if let Ok(mut models) = st.models.lock() {
+                if let Some(m) = models.iter_mut().find(|m| m.name == model_name) {
+                    m.pid = new_pid.to_string();
+                    m.status = "running".to_string();
+                    m.last_active = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                }
+            }
+        }
+        soul_log("INFO", "model", &format!("模型 '{}' 已从待机唤醒 pid={}", model_name, new_pid));
+        let _ = handle.emit("model-wake", serde_json::json!({ "name": model_name, "pid": new_pid.to_string() }));
+    }
+
+    // 唤醒成功 → 移出注册表
+    if let Ok(mut reg) = get_standby_registry().lock() {
+        reg.remove(model_name);
+    }
+    Ok(true)
+}
+
+/// 空闲自动待机扫描（监控线程每 5 秒调用一次）
+fn auto_standby_sweep(app_handle: &tauri::AppHandle) {
+    let idle_min = STANDBY_IDLE_MIN.load(Ordering::SeqCst) as u64;
+    if idle_min == 0 { return; }
+    let state = match app_handle.try_state::<RunningModelsState>() { Some(s) => s, None => return };
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let targets: Vec<String> = {
+        let models = match state.models.lock() { Ok(m) => m, Err(_) => return };
+        models.iter()
+            .filter(|m| m.status == "running" && m.last_active > 0
+                && now.saturating_sub(m.last_active) >= idle_min * 60)
+            .map(|m| m.name.clone())
+            .collect()
+    };
+    for name in targets {
+        match sleep_model_internal(&name) {
+            Ok(_) => {
+                soul_log("INFO", "monitor", &format!("空闲超过 {} 分钟，模型 '{}' 自动进入待机", idle_min, name));
+                let _ = app_handle.emit("model-standby", serde_json::json!({ "name": name, "auto": true }));
+            }
+            Err(e) => {
+                // 活跃会话等情况：刷新活跃时间，避免每 5 秒重复尝试
+                if let Ok(mut models) = state.models.lock() {
+                    if let Some(m) = models.iter_mut().find(|m| m.name == name) {
+                        m.last_active = now;
+                    }
+                }
+                soul_log("DEBUG", "monitor", &format!("自动待机 {} 暂缓: {}", name, e));
+            }
+        }
+    }
+}
+
+/// 手动让指定模型进入待机
+#[tauri::command]
+fn sleep_model(model_name: String) -> Result<String, String> {
+    let r = sleep_model_internal(&model_name);
+    if r.is_ok() {
+        if let Some(h) = APP_HANDLE.get() {
+            let _ = h.emit("model-standby", serde_json::json!({ "name": model_name, "auto": false }));
+        }
+    }
+    r
+}
+
+/// 手动唤醒待机模型
+#[tauri::command]
+fn wake_model(model_name: String) -> Result<String, String> {
+    let start = std::time::Instant::now();
+    match wake_standby_model(&model_name, APP_HANDLE.get())? {
+        true => Ok(format!("模型 {} 唤醒中（已拉起进程，耗时 {}ms）", model_name, start.elapsed().as_millis())),
+        false => Ok(format!("模型 {} 无需唤醒", model_name)),
+    }
+}
+
+/// 设置空闲自动待机阈值（分钟，0=关闭）
+#[tauri::command]
+fn set_standby_idle_min(minutes: u32) {
+    STANDBY_IDLE_MIN.store(minutes.min(240), Ordering::SeqCst);
+    soul_log("INFO", "settings", &format!("空闲自动待机阈值 = {} 分钟", minutes.min(240)));
 }
 
 /// 获取模型直连 llama 端口（绕过代理，用于工具调用等场景）
@@ -3680,32 +3891,54 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
         }
     }
 
-    // 3. 模型路由：检查 body 中的 model 字段，路由到对应端口
-    let target_llama_port = if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body) {
+    // 3. 模型路由：检查 body 中的 model 字段，路由到对应端口（并记录目标模型名，供待机自动唤醒）
+    let (target_llama_port, target_model_name) = if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body) {
         if let Some(requested_model) = json.get("model").and_then(|v| v.as_str()) {
             if !requested_model.is_empty() && requested_model != model_name {
                 // 查找目标模型端口
-                if let Ok(router) = get_model_router().lock() {
-                    if let Some(&target_port) = router.get(requested_model) {
-                        target_port + 1 // llama port = proxy port + 1
-                    } else {
-                        own_llama_port
-                    }
-                } else {
-                    own_llama_port
+                let routed = get_model_router().lock().ok()
+                    .and_then(|r| r.get(requested_model).copied());
+                match routed {
+                    Some(p) => (p + 1, requested_model.to_string()), // llama port = proxy port + 1
+                    None => (own_llama_port, model_name.to_string()),
                 }
             } else {
-                own_llama_port
+                (own_llama_port, model_name.to_string())
             }
         } else {
-            own_llama_port
+            (own_llama_port, model_name.to_string())
         }
     } else {
-        own_llama_port
+        (own_llama_port, model_name.to_string())
     };
 
+    // 3.5 待机自动唤醒：目标模型在待机注册表 → 立即拉起进程并延长等待窗口
+    //     覆盖所有经代理的请求（/chat、/v1/chat/completions 与透传端点统一生效）
+    let mut wake_triggered = false;
+    let in_standby = get_standby_registry().lock()
+        .map(|r| r.contains_key(&target_model_name)).unwrap_or(false);
+    if in_standby {
+        soul_log("INFO", "proxy", &format!("请求命中待机模型 '{}'，自动唤醒", target_model_name));
+        // 其他并发请求已触发唤醒时同样延长等待（Ok(false) 路径）
+        match wake_standby_model(&target_model_name, None) {
+            Ok(_) => wake_triggered = true,
+            Err(e) => soul_log_detail("WARN", "proxy", &format!("待机模型 '{}' 自动唤醒失败", target_model_name), &e),
+        }
+    }
+    // 3.6 记录最近活跃（空闲自动待机的依据；外部 API 调用同样计入）
+    if let Some(handle) = APP_HANDLE.get() {
+        if let Some(st) = handle.try_state::<RunningModelsState>() {
+            if let Ok(mut models) = st.models.lock() {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                if let Some(m) = models.iter_mut().find(|m| m.name == target_model_name) {
+                    m.last_active = now;
+                }
+            }
+        }
+    }
+
     let upstream_addr = format!("127.0.0.1:{}", target_llama_port);
-    soul_log("DEBUG", "proxy", &format!("model='{}' path='{}' route_to={} own_llama={}", model_name, path, target_llama_port, own_llama_port));
+    soul_log("DEBUG", "proxy", &format!("model='{}' path='{}' route_to={} own_llama={} wake={}", model_name, path, target_llama_port, own_llama_port, wake_triggered));
     eprintln!("[proxy] model='{}' path='{}' route_to_port={} (own_llama={})", model_name, path, target_llama_port, own_llama_port);
 
     // 4. 端点路由
@@ -3729,12 +3962,15 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
         (body.clone(), rest_headers.clone(), request_line.clone())
     };
     let mut upstream = None;
-    for attempt in 0..10 {
+    // 命中待机唤醒时把等待窗口延长到 180 秒（容忍模型加载），常规请求保持 3 秒
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(if wake_triggered { 180 } else { 3 });
+    while std::time::Instant::now() < deadline {
         match std::net::TcpStream::connect(&upstream_addr) {
             Ok(u) => { upstream = Some(u); break; }
             Err(_) => {
-                if attempt < 9 {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
+                if std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(if wake_triggered { 400 } else { 300 }));
                 }
             }
         }
@@ -3753,6 +3989,32 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
             return;
         }
     };
+
+    // 5.5 唤醒场景：TCP 已通但模型可能仍在加载（/health 返回 503）→ 等健康检查通过再转发
+    if wake_triggered {
+        let http = reqwest::blocking::Client::new();
+        while std::time::Instant::now() < deadline {
+            let ready = http.get(format!("http://127.0.0.1:{}/health", target_llama_port))
+                .timeout(std::time::Duration::from_secs(2))
+                .send()
+                .map(|r| r.status().as_u16() == 200)
+                .unwrap_or(false);
+            if ready { break; }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if std::time::Instant::now() >= deadline {
+            soul_log("ERROR", "proxy", &format!("待机模型 '{}' 唤醒后加载超时", target_model_name));
+            let body_text = "{\"error\":\"Model loading timeout\",\"message\":\"模型加载超时，请稍后重试\",\"retry_after\":10}";
+            let resp = format!(
+                "HTTP/1.1 503 Service Unavailable\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nRetry-After: 10\r\nConnection: close\r\n\r\n{}",
+                body_text.len(), body_text
+            );
+            let _ = client.write_all(resp.as_bytes());
+            let _ = client.flush();
+            return;
+        }
+        soul_log("INFO", "proxy", &format!("待机模型 '{}' 已就绪，开始转发", target_model_name));
+    }
     // 设置上游读取超时（120秒，模型推理可能较慢，流式需要更长）
     let _ = upstream.set_read_timeout(Some(std::time::Duration::from_secs(120)));
 
@@ -4642,6 +4904,9 @@ fn main() {
                 .item(&quit_item)
                 .build()?;
 
+            // 全局句柄：代理线程/待机引擎借此访问状态与发事件
+            let _ = APP_HANDLE.set(app.handle().clone());
+
             // 崩溃自动恢复监控线程（每 5 秒巡检 llama 进程，首次延迟 5 秒避开启动期）
             let monitor_handle = app.handle().clone();
             start_crash_monitor(monitor_handle);
@@ -4758,6 +5023,9 @@ fn main() {
             search_sessions,
             check_vram_free,
             get_file_size_mb,
+            sleep_model,
+            wake_model,
+            set_standby_idle_min,
             start_server,
             stop_server,
             wake_server,

@@ -389,6 +389,7 @@ async function restoreLastModels() {
                 modelName: m.name || '',
                 port: basePort + restored * 2,
                 ctx: m.ctx || 4096,
+                mmproj: m.mmproj || null,
             });
             restored++;
         } catch (e) {
@@ -588,6 +589,16 @@ async function listenServerOutput() {
         await window.__TAURI__.event.listen('server-crash-giveup', (event) => {
             addConsoleLine('warn', '❌ llama-server 连续崩溃，已停止自动恢复');
             showKbToast('llama-server 连续崩溃，已停止自动恢复');
+        });
+        // 待机 / 唤醒事件
+        await window.__TAURI__.event.listen('model-standby', (event) => {
+            const p = event.payload || {};
+            addConsoleLine('info', `💤 模型 ${p.name} 已进入待机（显存已释放${p.auto ? '，空闲自动触发' : ''}，请求自动唤醒）`);
+            if (p.auto) showKbToast(`模型 ${p.name} 空闲超时，已自动待机`);
+        });
+        await window.__TAURI__.event.listen('model-wake', (event) => {
+            const p = event.payload || {};
+            addConsoleLine('info', `⚡ 模型 ${p.name} 唤醒中，加载完成即可服务`);
         });
     } catch (e) {
         console.warn('崩溃恢复事件监听失败:', e);
@@ -1047,9 +1058,10 @@ async function pollServerStatus() {
         try {
             var snapshot = (models || [])
                 .filter(function(m) { return m.name && m.name.indexOf('bench-') !== 0; })
-                .map(function(m) { return { name: m.name, model_path: m.model_path, ctx: m.ctx }; });
+                .map(function(m) { return { name: m.name, model_path: m.model_path, ctx: m.ctx, mmproj: m.mmproj || null }; });
             localStorage.setItem('last-running-models', JSON.stringify(snapshot));
         } catch (e) {}
+        window._lastModels = models || [];
 
         // 如果无模型运行，检查服务器是否正在加载（HTTP 503 = Loading model）
         var loading = false;
@@ -1169,6 +1181,7 @@ async function startServer() {
                 modelName: modelName,
                 port: port,
                 ctx: ctx,
+                mmproj: localStorage.getItem('launcher-mmproj-path') || null,
             });
             addConsoleLine('success', modelName + ' 已启动: ' + result);
             started++;
@@ -2196,6 +2209,7 @@ async function quickStartModels() {
                 modelName: modelName,
                 port: port,
                 ctx: ctx,
+                mmproj: localStorage.getItem('launcher-mmproj-path') || null,
             });
             addConsoleLine('success', modelName + ' 已启动: ' + result);
             started++;
@@ -3675,6 +3689,17 @@ function loadSettings() {
     // 启动时恢复上次运行的模型
     const restoreEl = document.getElementById('restoreModelsOnBoot');
     if (restoreEl) restoreEl.checked = localStorage.getItem('launcher-restore-models') !== 'false';
+
+    // 空闲自动待机阈值 + mmproj 路径
+    const standbyEl = document.getElementById('standbyIdleMin');
+    if (standbyEl) {
+        standbyEl.value = localStorage.getItem('launcher-standby-idle-min') || '0';
+        if (window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('set_standby_idle_min', { minutes: parseInt(standbyEl.value, 10) || 0 }).catch(function() {});
+        }
+    }
+    const mmprojEl = document.getElementById('mmprojPath');
+    if (mmprojEl) mmprojEl.value = localStorage.getItem('launcher-mmproj-path') || '';
 }
 
 function onLangChange(value) {
@@ -3710,6 +3735,19 @@ function saveSettings() {
     const restoreEl = document.getElementById('restoreModelsOnBoot');
     if (restoreEl) {
         localStorage.setItem('launcher-restore-models', restoreEl.checked ? 'true' : 'false');
+    }
+
+    // 保存空闲自动待机阈值（立即通知后端）+ mmproj 路径
+    const standbyEl = document.getElementById('standbyIdleMin');
+    if (standbyEl) {
+        localStorage.setItem('launcher-standby-idle-min', standbyEl.value);
+        if (window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('set_standby_idle_min', { minutes: parseInt(standbyEl.value, 10) || 0 }).catch(function() {});
+        }
+    }
+    const mmprojEl = document.getElementById('mmprojPath');
+    if (mmprojEl) {
+        localStorage.setItem('launcher-mmproj-path', mmprojEl.value.trim());
     }
 
     // 同步启动页面的端口和上下文
@@ -4595,6 +4633,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 sendLiteMessage();
             }
         });
+        // 聚焦即预唤醒待机模型：打字的几秒里模型已经在加载，感知更接近秒启
+        input.addEventListener('focus', prefetchWakeSelectedModel);
         input.addEventListener('input', function() {
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 200) + 'px';
@@ -4779,27 +4819,34 @@ async function loadRunningModels() {
         var totalVram = 0;
         models.forEach(function(m) { totalVram += m.vram_mb || 0; });
 
+        var standbyCount = models.filter(function(m) { return m.status === 'standby'; }).length;
         container.innerHTML = '<div class="rm-summary">' +
-            '<span><strong>' + models.length + '</strong> 个模型运行中</span>' +
+            '<span><strong>' + (models.length - standbyCount) + '</strong> 个模型运行中</span>' +
+            (standbyCount > 0 ? '<span><strong>' + standbyCount + '</strong> 个待机中</span>' : '') +
             (totalVram > 0 ? '<span class="rm-vram-total">显存: <strong>' + formatVram(totalVram) + '</strong></span>' : '') +
             '</div>';
 
         models.forEach(function(m) {
             var row = document.createElement('div');
             row.className = 'running-model-row';
+            var isStandby = m.status === 'standby';
             var vramText = m.vram_mb > 0 ? formatVram(m.vram_mb) : '—';
-            var statusClass = m.status === 'running' ? 'rm-dot-online' : 'rm-dot-offline';
-            var statusText = m.status === 'running' ? '运行中' : '已停止';
+            var statusClass = m.status === 'running' ? 'rm-dot-online' : (isStandby ? 'rm-dot-standby' : 'rm-dot-offline');
+            var statusText = isStandby ? '待机中' : (m.status === 'running' ? '运行中' : '已停止');
+            var safeName = m.name.replace(/'/g,"\\'");
             row.innerHTML =
                 '<label class="rm-checkbox"><input type="checkbox" data-name="' + m.name.replace(/"/g,'&quot;') + '" onchange="toggleUnloadModel(this)"><span class="rm-checkmark"></span></label>' +
                 '<div class="rm-info">' +
-                    '<div class="rm-name"><span class="rm-status-dot ' + statusClass + '"></span>' + m.name +
-                    ' <span class="rm-mode-badge ' + (m.persistent ? 'badge-persistent' : 'badge-standby') + '">' + (m.persistent ? '常驻' : '待机') + '</span>' +
+                    '<div class="rm-name"><span class="rm-status-dot ' + statusClass + '" title="' + statusText + '"></span>' + m.name +
+                    ' <span class="rm-mode-badge ' + (isStandby ? 'badge-standby' : 'badge-persistent') + '">' + (isStandby ? '待机' : '常驻') + '</span>' +
                     '</div>' +
-                    '<div class="rm-meta">端口 <strong>' + m.proxy_port + '</strong> · 上下文 ' + m.ctx + 'K · PID ' + m.pid + ' · ' + m.started_at + '</div>' +
+                    '<div class="rm-meta">端口 <strong>' + m.proxy_port + '</strong> · 上下文 ' + m.ctx + 'K · ' + (isStandby ? 'PID —（已释放，请求自动唤醒）' : 'PID ' + m.pid + ' · ' + m.started_at) + '</div>' +
                 '</div>' +
                 '<div class="rm-vram">' + vramText + '</div>' +
-                '<button class="btn btn-sm rm-unload" onclick="unloadSingleModel(\'' + m.name.replace(/'/g,"\\'") + '\')">停止</button>';
+                (isStandby
+                    ? '<button class="btn btn-sm rm-unload" onclick="wakeModel(\'' + safeName + '\')">唤醒</button>'
+                    : '<button class="btn btn-sm rm-unload" onclick="sleepModel(\'' + safeName + '\')">待机</button>') +
+                '<button class="btn btn-sm rm-unload" onclick="unloadSingleModel(\'' + safeName + '\')">停止</button>';
             container.appendChild(row);
         });
     } catch (e) { console.warn('加载运行模型失败:', e); }
@@ -4927,6 +4974,42 @@ async function openSearchHit(i) {
     if (!h) return;
     switchPage('chat');
     await switchSession(h.session_id);
+}
+
+// ============================================================
+// 模型待机 / 唤醒（平时零显存，请求命中自动唤醒；这里提供手动入口）
+// ============================================================
+
+async function sleepModel(name) {
+    try {
+        var msg = await window.__TAURI__.core.invoke('sleep_model', { modelName: name });
+        showKbToast(msg);
+        loadRunningModels();
+    } catch (e) {
+        showKbToast('待机失败: ' + e);
+    }
+}
+
+async function wakeModel(name) {
+    try {
+        await window.__TAURI__.core.invoke('wake_model', { modelName: name });
+        showKbToast('模型 ' + name + ' 唤醒中，加载完成即可对话~');
+        loadRunningModels();
+    } catch (e) {
+        showKbToast('唤醒失败: ' + e);
+    }
+}
+
+/// 输入框聚焦时预唤醒当前选中的待机模型（用户打字的几秒里模型已在加载，感知更"秒启"）
+async function prefetchWakeSelectedModel() {
+    try {
+        if (!_liteSelectedModel || _liteSelectedModel === 'default') return;
+        var m = (window._lastModels || []).find(function(x) { return x.name === _liteSelectedModel; });
+        if (m && m.status === 'standby') {
+            await window.__TAURI__.core.invoke('wake_model', { modelName: m.name });
+            showKbToast('模型 ' + m.name + ' 唤醒中~');
+        }
+    } catch (e) { /* 静默：代理层还有兜底自动唤醒 */ }
 }
 
 /// 创建新会话
