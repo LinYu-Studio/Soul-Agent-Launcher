@@ -7,9 +7,13 @@
 const UPDATE_API_URL = 'https://sal.bszx.site/api/check-update';
 const SKIP_UPDATE_KEY = 'sal-skip-update';
 
+// 版本号唯一出处（需与 src-tauri/tauri.conf.json / Cargo.toml 保持一致）
+const APP_VERSION = '0.4.1';
+const APP_VERSION_LABEL = 'v' + APP_VERSION + '-Beta';
+
 async function checkUpdate(btn) {
     try {
-        var currentVersion = '0.4.1';
+        var currentVersion = APP_VERSION;
         var resp = await fetch(UPDATE_API_URL + '?current_version=' + currentVersion, {
             signal: AbortSignal.timeout(5000)
         });
@@ -327,6 +331,10 @@ function confirmMode() {
 document.addEventListener('DOMContentLoaded', async () => {
     debugLog('DOMContentLoaded 开始');
 
+    // 侧边栏版本号（唯一来源 APP_VERSION；只替换首个文本节点，保留跑分徽章）
+    var verEl = document.getElementById('sidebarVersion');
+    if (verEl && verEl.firstChild) verEl.firstChild.nodeValue = APP_VERSION_LABEL + ' ';
+
     // 隐私政策检查
     if (!localStorage.getItem('sal-privacy-accepted')) {
         document.getElementById('privacyOverlay')?.classList.remove('hidden');
@@ -360,7 +368,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (config && config.llama_path) {
                 localStorage.setItem('launcher-llama-path', config.llama_path);
                 if (config.port) localStorage.setItem('launcher-port', config.port);
-                if (config.ctx_size) localStorage.setItem('launcher-ctx-size', String(config.ctx_size));
+                if (config.ctx) localStorage.setItem('launcher-ctx', String(config.ctx));
             }
         } catch (e) {
             // 首次运行，无配置文件，正常
@@ -502,7 +510,7 @@ async function checkAndRunSetup() {
             debugLog('从 config.json 恢复了 llama_path: ' + config.llama_path);
             localStorage.setItem('launcher-llama-path', config.llama_path);
             if (config.port) localStorage.setItem('launcher-port', config.port);
-            if (config.ctx_size) localStorage.setItem('launcher-ctx-size', String(config.ctx_size));
+            if (config.ctx) localStorage.setItem('launcher-ctx', String(config.ctx));
         }
     } catch (e) {
         debugLog('load_config 失败 (可能首次安装): ' + e);
@@ -524,7 +532,7 @@ async function checkAndRunSetup() {
                 if (config2 && config2.llama_path && !localStorage.getItem('launcher-llama-path')) {
                     localStorage.setItem('launcher-llama-path', config2.llama_path);
                     if (config2.port) localStorage.setItem('launcher-port', config2.port);
-                    if (config2.ctx_size) localStorage.setItem('launcher-ctx-size', String(config2.ctx_size));
+                    if (config2.ctx) localStorage.setItem('launcher-ctx', String(config2.ctx));
                 }
             } catch(e) {}
             checkLlamaVersion();
@@ -1298,7 +1306,7 @@ async function startQuickBenchmark() {
         saveBenchResult({
             date: new Date().toLocaleString('zh-CN'),
             mode: 'quick', gpu: gpuInfo?.gpu_name || '', cuda_version: gpuInfo?.cuda_version || '',
-            vram_mb: gpuInfo?.vram_total_mb || 0, sal_version: '0.4.1',
+            vram_mb: gpuInfo?.vram_total_mb || 0, sal_version: APP_VERSION,
             results: results, score: score
         });
         // 称号和首次庆祝
@@ -1402,7 +1410,7 @@ async function runSingleBenchmark(modelName, modelId, isThinking, promptLen, run
             saveBenchResult({
                 date: new Date().toLocaleString('zh-CN'), mode: 'custom',
                 gpu: gpuInfo?.gpu_name || '', cuda_version: gpuInfo?.cuda_version || '',
-                vram_mb: gpuInfo?.vram_total_mb || 0, sal_version: '0.4.1',
+                vram_mb: gpuInfo?.vram_total_mb || 0, sal_version: APP_VERSION,
                 results: [{ name: modelName, tokS: avgResult.tokS, firstTokenLatency: avgResult.firstTokenLatency, tokens: avgResult.tokens, duration: avgResult.duration, runs: runCount }],
                 score: score,
                 prompt_len: promptLen, run_count: runCount
@@ -1597,7 +1605,7 @@ function toggleBenchPromptPreview() {
 async function feedbackBenchmark() {
     if (!confirm('将打包以下数据用于反馈：\n• 硬件信息（GPU、显存）\n• 最近跑分结果\n• SAL 版本\n\n点击确定后数据将被复制到剪贴板，可粘贴发送给开发者。')) return;
     var lines = ['SAL 跑分反馈', '============', ''];
-    lines.push('SAL 版本: 0.4.1');
+    lines.push('SAL 版本: ' + APP_VERSION);
     try {
         var gpuInfo = await window.__TAURI__.core.invoke('detect_gpu');
         lines.push('GPU: ' + (gpuInfo.gpu_name || 'N/A'));
@@ -3232,14 +3240,13 @@ async function buildMinimal() {
     }
 
     const llamaInstallDir = localStorage.getItem('launcher-llama-path') || '';
-    let outputDir = '';
-    if (llamaInstallDir) {
-        // 输出到 llama 安装目录的父级
-        outputDir = llamaInstallDir.substring(0, llamaInstallDir.lastIndexOf('\\llama\\'));
-        if (!outputDir) outputDir = llamaInstallDir;
-    } else {
-        outputDir = 'C:\\Users\\Default\\AppData\\Roaming\\Soul-Agent-Launcher\\llama';
+    if (!llamaInstallDir) {
+        alert('请先完成首次启动配置（llama.cpp 路径），再进行编译');
+        return;
     }
+    // 输出到 llama 安装目录的父级
+    let outputDir = llamaInstallDir.substring(0, llamaInstallDir.lastIndexOf('\\llama\\'));
+    if (!outputDir) outputDir = llamaInstallDir;
 
     const status = document.getElementById('buildStatus');
     status.innerHTML = '准备中...';
@@ -3336,10 +3343,10 @@ function loadSettings() {
 
 function onLangChange(value) {
     setLanguage(value);
-    // 刷新 UI 中的动态文本
-    updateServerStatusUI('stopped');
+    // 刷新 UI 中的动态文本（状态轮询是异步的，完成后会重绘所有动态文案）
+    pollServerStatus();
     loadSessionList();
-    updateCtxDisplay();
+    updateLiteCtx();
 }
 
 // 暴露到全局供 HTML onclick 调用
@@ -3940,7 +3947,7 @@ async function sendLiteMessage() {
             ]);
 
             if (readResult.type === 'timeout') {
-                soulLog('chat', `流超时(${timeoutMs}ms)：${_hasOutput ? '已输出无新数据' : '等待首次响应超时'}`);
+                debugLog(`chat 流超时(${timeoutMs}ms)：${_hasOutput ? '已输出无新数据' : '等待首次响应超时'}`);
                 break;  // 直接结束，已收到的内容保留显示
             }
 
@@ -4156,7 +4163,7 @@ async function sendLiteMessage() {
                     }
                 }
             } catch(e) {
-                soulLog('chat', '工具调用 follow-up 失败: ' + e);
+                debugLog('chat 工具调用 follow-up 失败: ' + e);
                 if (bubble) {
                     bubble.innerHTML = '<span style="color:var(--danger);">工具调用出错: ' + e + '</span>';
                 }
@@ -4958,40 +4965,39 @@ function initKnowledgePage() {
     checkEmbeddingStatus();
 }
 
-/// 嵌入功能已禁用（0.5.x 版本启用）
+/// 嵌入功能已禁用（0.5.x 版本启用）——以下为占位实现，防止 onclick 调用未定义函数崩溃
+function startEmbeddingService() {
+    showKbToast('嵌入功能将在 0.5.x 版本启用，当前使用关键词检索');
+}
 
+function stopEmbeddingService() {
+    showKbToast('嵌入功能将在 0.5.x 版本启用，当前使用关键词检索');
+}
 
-
-
-
-
-
-/// 启动嵌入服务
-
-
-/// 停止嵌入服务
-
-
-/// 下载嵌入模型
-async function downloadEmbeddingModel() {
-    var modelsDir = localStorage.getItem('launcher-models-dir') || '';
-    if (!modelsDir) { alert('请先在设置中配置模型目录路径'); return; }
+/// 检查嵌入状态（嵌入禁用期间仅同步 kb_status 显示）
+async function checkEmbeddingStatus() {
     try {
-        // 使用现有的下载框架
-        await window.__TAURI__.core.invoke('start_model_download', {
-            modelId: 'Mungert/all-MiniLM-L6-v2-GGUF:*',
-            localDir: modelsDir,
-            includePattern: '*Q4_K_M*.gguf'
-        });
-        // 等待下载完成
-        if (typeof waitForDownloadComplete === 'function') {
-            await waitForDownloadComplete();
+        var status = await window.__TAURI__.core.invoke('kb_status');
+        if (status && status.embedding_available) {
+            await updateKbStatus();
+        } else {
+            var dot = document.getElementById('kbEmbedDot');
+            var label = document.getElementById('kbEmbedLabel');
+            if (dot) dot.style.background = '#888';
+            if (label) label.textContent = '已禁用（0.5.x 启用）';
         }
-        alert('嵌入模型下载完成！点击「启动」开始使用。');
-        checkEmbeddingStatus();
-    } catch(e) {
-        alert('下载嵌入模型失败: ' + e);
-    }
+    } catch(e) {}
+}
+
+
+
+
+
+
+
+/// 下载嵌入模型（嵌入已禁用，0.5.x 启用；避免用户白下 23MB 模型）
+async function downloadEmbeddingModel() {
+    showKbToast('嵌入功能将在 0.5.x 版本启用，当前使用关键词检索');
 }
 
 /// SA Lite 自动检索开关

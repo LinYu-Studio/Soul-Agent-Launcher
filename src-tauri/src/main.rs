@@ -1707,38 +1707,43 @@ fn get_llama_package_path(package_key: &str) -> Option<(PathBuf, Option<PathBuf>
         "Downloads", "llama.cpp",
     ].iter().collect();
 
-    let (llama_zip, cudart_zip) = match package_key {
-        "cuda-12.4" => (
-            downloads_base.join("llama-b9568-bin-win-cuda-12.4-x64.zip"),
-            Some(downloads_base.join("cudart-llama-bin-win-cuda-12.4-x64.zip")),
+    // llama 主包文件名带构建号（llama-bNNNN-bin-win-<key>[-x64].zip）。
+    // 不再锁死 b9568：按 `llama-b*-bin-win-<suffix>` 模式扫描，取构建号最大的包。
+    let zip_suffix = match package_key {
+        "cuda-12.4" | "cuda-13.3" => format!("{}-x64.zip", package_key),
+        other => format!("{}.zip", other),
+    };
+    let llama_zip = find_latest_llama_zip(&downloads_base, &zip_suffix)?;
+
+    let cudart_zip = match package_key {
+        "cuda-12.4" | "cuda-13.3" => Some(
+            downloads_base.join(format!("cudart-llama-bin-win-{}-x64.zip", package_key)),
         ),
-        "cuda-13.3" => (
-            downloads_base.join("llama-b9568-bin-win-cuda-13.3-x64.zip"),
-            Some(downloads_base.join("cudart-llama-bin-win-cuda-13.3-x64.zip")),
-        ),
-        "vulkan-x64" => (
-            downloads_base.join("llama-b9568-bin-win-vulkan-x64.zip"),
-            None,
-        ),
-        "hip-radeon-x64" => (
-            downloads_base.join("llama-b9568-bin-win-hip-radeon-x64.zip"),
-            None,
-        ),
-        "cpu-arm64" => (
-            downloads_base.join("llama-b9568-bin-win-cpu-arm64.zip"),
-            None,
-        ),
-        _ => (
-            downloads_base.join("llama-b9568-bin-win-cpu-x64.zip"),
-            None,
-        ),
+        _ => None,
     };
 
-    if llama_zip.exists() {
-        Some((llama_zip, cudart_zip))
-    } else {
-        None
+    Some((llama_zip, cudart_zip))
+}
+
+/// 在目录中找构建号最大的 `llama-bNNNN-bin-win-<suffix>` 包
+fn find_latest_llama_zip(dir: &std::path::Path, suffix: &str) -> Option<PathBuf> {
+    let mut best: Option<(u32, PathBuf)> = None;
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !(name.starts_with("llama-b") && name.ends_with(suffix)) {
+            continue;
+        }
+        let build = name["llama-b".len()..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|d| d.parse::<u32>().ok())
+            .unwrap_or(0);
+        if best.as_ref().map_or(true, |(b, _)| build > *b) {
+            best = Some((build, entry.path()));
+        }
     }
+    best.map(|(_, p)| p)
 }
 
 // ============================================================
@@ -1756,13 +1761,20 @@ fn check_python_installed() -> bool {
     match check {
         Ok(status) if status.success() => true,
         _ => {
-            // 也检查常见路径
+            // 也检查常见路径（用户级安装路径用 LOCALAPPDATA 动态拼接，避免硬编码用户名）
+            let user_python = std::env::var("LOCALAPPDATA").map(|v| {
+                std::path::PathBuf::from(v)
+                    .join("Programs")
+                    .join("Python")
+                    .join("Python311")
+                    .join("python.exe")
+            });
             let common_paths = [
-                "C:\\Python311\\python.exe",
-                "C:\\Program Files\\Python311\\python.exe",
-                "C:\\Users\\36833\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+                Some(std::path::PathBuf::from("C:\\Python311\\python.exe")),
+                Some(std::path::PathBuf::from("C:\\Program Files\\Python311\\python.exe")),
+                user_python.ok(),
             ];
-            common_paths.iter().any(|p| std::path::Path::new(p).exists())
+            common_paths.into_iter().flatten().any(|p| p.exists())
         }
     }
 }
