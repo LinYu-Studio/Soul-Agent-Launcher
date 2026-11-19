@@ -954,6 +954,10 @@ fn sleep_model_internal(model_name: &str) -> Result<String, String> {
         if m.status == "standby" {
             return Err(format!("模型 {} 已处于待机", model_name));
         }
+        if m.status == "restarting" {
+            // 崩溃自动恢复进行中：此时待机会与恢复流程竞态（恢复完成会覆盖待机状态）
+            return Err("模型正在自动恢复中，请稍后再待机".to_string());
+        }
         (m.model_path.clone(), m.llama_port, m.ctx, m.mmproj.clone(), m.pid.clone())
     };
 
@@ -1020,6 +1024,7 @@ fn wake_standby_model(model_name: &str, app: Option<&tauri::AppHandle>) -> Resul
 
     // 更新运行列表：恢复 PID 与状态（代理与后续请求立即正常路由）
     let handle = APP_HANDLE.get().or(app);
+    let mut entry_found = false;
     if let Some(handle) = handle {
         if let Some(st) = handle.try_state::<RunningModelsState>() {
             if let Ok(mut models) = st.models.lock() {
@@ -1027,11 +1032,20 @@ fn wake_standby_model(model_name: &str, app: Option<&tauri::AppHandle>) -> Resul
                     m.pid = new_pid.to_string();
                     m.status = "running".to_string();
                     m.last_active = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                    entry_found = true;
                 }
             }
         }
         soul_log("INFO", "model", &format!("模型 '{}' 已从待机唤醒 pid={}", model_name, new_pid));
         let _ = handle.emit("model-wake", serde_json::json!({ "name": model_name, "pid": new_pid.to_string() }));
+    }
+    // 运行期间条目被手动卸载 → 回收刚拉起的孤儿进程，避免显存泄漏
+    if !entry_found {
+        drop(child);
+        reset_loading(model_name);
+        if let Ok(mut reg) = get_standby_registry().lock() { reg.remove(model_name); }
+        soul_log("WARN", "model", &format!("模型 '{}' 唤醒期间被手动卸载，回收孤儿进程 pid={}", model_name, new_pid));
+        return Err(format!("模型 {} 已被卸载，唤醒中止", model_name));
     }
 
     // 唤醒成功 → 移出注册表
@@ -1413,7 +1427,16 @@ fn check_idle(state: State<ServerState>) -> Result<serde_json::Value, String> {
 /// 查询 llama-server 活跃会话数
 fn get_active_session_count(llama_port: u16) -> usize {
     let url = format!("http://127.0.0.1:{}/slots", llama_port);
-    match reqwest::blocking::get(&url) {
+    // 必须带超时：llama 进程挂死时，无超时会冻住调用线程
+    // （监控线程被冻 = 崩溃恢复/自动待机全部失效）
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    match client.get(&url).send() {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(slots) = resp.json::<Vec<serde_json::Value>>() {
                 slots.iter()
