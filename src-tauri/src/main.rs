@@ -2933,127 +2933,148 @@ async fn start_model_download(
 
     let clean_id = model_id.trim_end_matches(":*").to_string();
 
-    // 构建命令
-    let mut cmd = new_hidden_cmd("modelscope");
-    cmd.args(["download", "--model", &clean_id, "--local_dir", &local_dir]);
-
     let token_path = get_launcher_dir().join("tokens").join("modelscope.token");
     let has_token = token_path.exists() && std::fs::read_to_string(&token_path)
         .map(|c| !c.trim().is_empty()).unwrap_or(false);
     if let Ok(mut ut) = state.use_token.lock() { *ut = has_token; }
 
-    if has_token {
-        if let Ok(content) = std::fs::read_to_string(&token_path) {
-            let token = content.trim().to_string();
-            if !token.is_empty() {
-                cmd.arg("--token");
-                cmd.arg(&token);
-            }
-        }
-    }
-
-    if let Some(pattern) = &include_pattern {
-        cmd.arg("--include");
-        cmd.arg(pattern);
-    }
-
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
-
-    let mut child = cmd.spawn().map_err(|e| {
-        soul_log_detail("ERROR", "download", "start_model_download 启动 modelscope 失败", &e.to_string());
-        format!("启动下载失败: {}\n\n请确保已安装 modelscope CLI:\n  pip install modelscope", e)
-    })?;
-    let pid = child.id();
-    soul_log("INFO", "download", &format!("modelscope 下载进程已启动 pid={}", pid));
-    *pid_guard = Some(pid);
-
-    // 后台线程：等待下载 + SHA256 校验 + 自动重试
+    // 后台线程：下载 + 完整性校验 + 真实自动重试循环（失败自动重下）
     let app_clone = app_handle.clone();
     let model_clone = clean_id.clone();
     let local_dir_c = local_dir.clone();
     let ip_c = include_pattern.clone();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    let token_path_c = token_path.clone();
+    drop(pid_guard); // 释放占用检查用的锁，线程内经 app.state 更新 PID/重试计数
 
     std::thread::spawn(move || {
         let max_retries = 3u32;
-        // 重试计数器（在同一线程内顺序使用，无需原子操作）
-        let mut retry_count = 0u32;
+        let total_attempts = max_retries + 1; // 首次 + 3 次自动重试
+        let mut attempts_done: u32 = 0;
+        let st = app_clone.state::<DownloadProcess>();
 
-        let _ = app_clone.emit("download-progress", serde_json::json!({
-            "progress": 0,
-            "message": format!("正在下载 {} ...", model_clone),
-            "status": "downloading",
-        }));
+        loop {
+            attempts_done += 1;
+            let attempt = attempts_done;
+            let is_retry = attempt > 1;
 
-        // 从 stdout 读取
-        let app_clone2 = app_clone.clone();
-        let stdout_handle = if let Some(out) = stdout {
-            Some(std::thread::spawn(move || {
-                let reader = BufReader::new(out);
-                for line in reader.lines() {
-                    if let Ok(text) = line {
-                        let trimmed = text.trim();
-                        if !trimmed.is_empty() {
-                            let _ = app_clone2.emit("download-progress", serde_json::json!({
-                                "progress": 0,
-                                "message": trimmed,
-                                "status": "downloading",
-                            }));
-                        }
-                    }
-                }
-            }))
-        } else { None };
-
-        // 从 stderr 读取 tqdm
-        let app_clone3 = app_clone.clone();
-        let stderr_handle = if let Some(err) = stderr {
-            Some(std::thread::spawn(move || {
-                let mut reader = BufReader::new(err);
-                let mut buf = Vec::new();
-                while let Ok(n) = reader.read_until(b'\r', &mut buf) {
-                    if n == 0 { break; }
-                    let text = String::from_utf8_lossy(&buf).trim().to_string();
-                    buf.clear();
-                    if text.is_empty() { continue; }
-                    let pct = text.split('%').next()
-                        .and_then(|s| s.split_whitespace().last())
-                        .and_then(|s| s.parse::<u32>().ok());
-                    let _ = app_clone3.emit("download-progress", serde_json::json!({
-                        "progress": pct.unwrap_or(0),
-                        "message": text,
-                        "status": "downloading",
-                    }));
-                }
-            }))
-        } else { None };
-
-        if let Some(h) = stdout_handle { let _ = h.join(); }
-        if let Some(h) = stderr_handle { let _ = h.join(); }
-
-        let status = child.wait();
-        let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
-
-        if !success {
-            let code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
-            soul_log_detail("ERROR", "download", &format!("下载失败: {} 退出码={}", model_clone, code), "");
             let _ = app_clone.emit("download-progress", serde_json::json!({
                 "progress": 0,
-                "message": format!("{} 下载失败（退出码: {}）", model_clone, code),
-                "status": "error",
-                "retryable": true,
+                "message": if is_retry {
+                    format!("第 {}/{} 次下载尝试: {} ...", attempt, total_attempts, model_clone)
+                } else {
+                    format!("正在下载 {} ...", model_clone)
+                },
+                "status": "downloading",
             }));
-            return;
-        }
 
-        // ── modelscope 下载成功 → SHA256 校验 ──
-        let _ = app_clone.emit("download-progress", serde_json::json!({
-            "progress": 99,
-            "message": "正在校验文件完整性...",
-            "status": "verifying",
-        }));
+            // 构建并启动本次下载进程
+            let mut cmd = new_hidden_cmd("modelscope");
+            cmd.args(["download", "--model", &model_clone, "--local_dir", &local_dir_c]);
+            if let Ok(content) = std::fs::read_to_string(&token_path_c) {
+                let token = content.trim().to_string();
+                if !token.is_empty() {
+                    cmd.args(["--token", &token]);
+                }
+            }
+            if let Some(ref pattern) = ip_c {
+                cmd.args(["--include", pattern]);
+            }
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    soul_log_detail("ERROR", "download", "启动 modelscope 失败", &e.to_string());
+                    let _ = app_clone.emit("download-progress", serde_json::json!({
+                        "progress": 0,
+                        "message": format!("启动下载失败: {}（请确认已安装 modelscope CLI）", e),
+                        "status": "error",
+                        "retryable": true,
+                    }));
+                    return;
+                }
+            };
+            let pid = child.id();
+            if let Ok(mut p) = st.pid.lock() { *p = Some(pid); }
+            if let Ok(mut rc) = st.retry_count.lock() { *rc = attempt - 1; }
+            soul_log("INFO", "download", &format!("modelscope 下载进程已启动 pid={} (第 {}/{} 次尝试)", pid, attempt, total_attempts));
+
+            // 从 stdout 读取
+            let app_r = app_clone.clone();
+            let stdout_handle = if let Some(out) = child.stdout.take() {
+                Some(std::thread::spawn(move || {
+                    let reader = BufReader::new(out);
+                    for line in reader.lines() {
+                        if let Ok(text) = line {
+                            let trimmed = text.trim();
+                            if !trimmed.is_empty() {
+                                let _ = app_r.emit("download-progress", serde_json::json!({
+                                    "progress": 0,
+                                    "message": trimmed,
+                                    "status": "downloading",
+                                }));
+                            }
+                        }
+                    }
+                }))
+            } else { None };
+
+            // 从 stderr 读取 tqdm
+            let app_e = app_clone.clone();
+            let stderr_handle = if let Some(err) = child.stderr.take() {
+                Some(std::thread::spawn(move || {
+                    let mut reader = BufReader::new(err);
+                    let mut buf = Vec::new();
+                    while let Ok(n) = reader.read_until(b'\r', &mut buf) {
+                        if n == 0 { break; }
+                        let text = String::from_utf8_lossy(&buf).trim().to_string();
+                        buf.clear();
+                        if text.is_empty() { continue; }
+                        let pct = text.split('%').next()
+                            .and_then(|s| s.split_whitespace().last())
+                            .and_then(|s| s.parse::<u32>().ok());
+                        let _ = app_e.emit("download-progress", serde_json::json!({
+                            "progress": pct.unwrap_or(0),
+                            "message": text,
+                            "status": "downloading",
+                        }));
+                    }
+                }))
+            } else { None };
+
+            if let Some(h) = stdout_handle { let _ = h.join(); }
+            if let Some(h) = stderr_handle { let _ = h.join(); }
+
+            let status = child.wait();
+            let success = status.as_ref().map(|s| s.success()).unwrap_or(false);
+
+            if !success {
+                let code = status.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
+                soul_log_detail("ERROR", "download", &format!("下载失败: {} 退出码={}", model_clone, code), "");
+                if attempt < total_attempts {
+                    let _ = app_clone.emit("download-progress", serde_json::json!({
+                        "progress": 0,
+                        "message": format!("下载失败（退出码: {}），第 {}/{} 次重试...", code, attempt, total_attempts - 1),
+                        "status": "retrying",
+                    }));
+                    continue;
+                }
+                let _ = app_clone.emit("download-progress", serde_json::json!({
+                    "progress": 0,
+                    "message": format!("{} 下载失败：已尝试 {} 次（退出码: {}），请检查网络后点击重试", model_clone, attempts_done, code),
+                    "status": "error",
+                    "retryable": true,
+                }));
+                return;
+            }
+
+            // ── modelscope 下载成功 → 完整性校验 ──
+            let _ = app_clone.emit("download-progress", serde_json::json!({
+                "progress": 99,
+                "message": "正在校验文件完整性...",
+                "status": "verifying",
+            }));
 
         // 扫描本地目录，找到下载的 GGUF 文件
         let dir = std::path::Path::new(&local_dir_c);
@@ -3077,33 +3098,23 @@ async fn start_model_download(
                 .collect();
 
             if any_files.is_empty() {
-                // 完全没文件 → 重试
-                retry_count += 1;
-                let rc = retry_count;
-                if rc <= max_retries {
-                    soul_log("WARN", "download", &format!("未下载到任何文件，第{}次自动重试", rc));
+                // 完全没文件 → 若还有尝试次数则自动重下
+                if attempt < total_attempts {
+                    soul_log("WARN", "download", &format!("未下载到任何文件（第 {}/{} 次尝试），自动重试", attempt, total_attempts));
                     let _ = app_clone.emit("download-progress", serde_json::json!({
                         "progress": 0,
-                        "message": format!("未下载到文件，第 {} 次重试...", rc),
+                        "message": format!("未下载到文件，第 {}/{} 次重试...", attempt, total_attempts - 1),
                         "status": "retrying",
                     }));
-                    // 重新调用下载逻辑（这里只能记录，前端手动重试）
-                    let _ = app_clone.emit("download-progress", serde_json::json!({
-                        "progress": 0,
-                        "message": format!("下载结果异常，请点击重试按钮重新下载（{}/{}）", rc, max_retries),
-                        "status": "error",
-                        "retryable": true,
-                    }));
-                    return;
-                } else {
-                    let _ = app_clone.emit("download-progress", serde_json::json!({
-                        "progress": 0,
-                        "message": format!("{} 下载失败：已重试 {} 次均未下载到文件，请检查网络或模型 ID", model_clone, max_retries),
-                        "status": "error",
-                        "retryable": true,
-                    }));
-                    return;
+                    continue;
                 }
+                let _ = app_clone.emit("download-progress", serde_json::json!({
+                    "progress": 0,
+                    "message": format!("{} 下载失败：已尝试 {} 次均未下载到文件，请检查网络或模型 ID", model_clone, attempts_done),
+                    "status": "error",
+                    "retryable": true,
+                }));
+                return;
             }
 
             // 有文件但不是 GGUF（如 FP16 权重）→ 只做大小校验
@@ -3197,134 +3208,30 @@ async fn start_model_download(
                 "sha256": hashes,
             }));
         } else if !verified_ok {
-            // SHA256 校验失败 → 自动重试
-            retry_count += 1;
-            let rc = retry_count;
-            if rc <= max_retries {
-                soul_log("WARN", "download", &format!("校验失败，第{}次自动重试", rc));
+            // 完整性异常（文件过小/无法读取）→ 清理可疑文件后自动重下
+            soul_log("WARN", "download", &format!("完整性校验未通过（第 {}/{} 次尝试），清理后重试", attempt, total_attempts));
+            for gf in &gguf_files {
+                let _ = std::fs::remove_file(gf);
+            }
+            if attempt < total_attempts {
                 let _ = app_clone.emit("download-progress", serde_json::json!({
                     "progress": 0,
-                    "message": format!("校验失败，第 {} / {} 次自动重试...", rc, max_retries),
+                    "message": format!("文件异常已清理，第 {}/{} 次重试...", attempt, total_attempts - 1),
                     "status": "retrying",
                 }));
-                // 自动重试：清理目录后重新下载
-                soul_log("INFO", "download", "清理已下载文件...");
-                for gf in &gguf_files {
-                    let _ = std::fs::remove_file(gf);
-                }
-
-                // 重新启动下载（同步重试）
-                let mut cmd2 = new_hidden_cmd("modelscope");
-                cmd2.args(["download", "--model", &model_clone, "--local_dir", &local_dir_c]);
-                if has_token {
-                    if let Ok(content) = std::fs::read_to_string(&token_path) {
-                        let token = content.trim().to_string();
-                        if !token.is_empty() { cmd2.args(["--token", &token]); }
-                    }
-                }
-                if let Some(ref pattern) = ip_c {
-                    cmd2.args(["--include", pattern]);
-                }
-                cmd2.stdout(std::process::Stdio::piped());
-                cmd2.stderr(std::process::Stdio::piped());
-
-                if let Ok(mut child2) = cmd2.spawn() {
-                    let _ = app_clone.emit("download-progress", serde_json::json!({
-                        "progress": 0,
-                        "message": format!("第 {} 次下载: {} ...", rc, model_clone),
-                        "status": "downloading",
-                    }));
-
-                    let out2 = child2.stdout.take();
-                    let err2 = child2.stderr.take();
-
-                    let a2 = app_clone.clone();
-                    let h1 = if let Some(o) = out2 {
-                        Some(std::thread::spawn(move || {
-                            let r = BufReader::new(o);
-                            for line in r.lines() {
-                                if let Ok(t) = line {
-                                    let tr = t.trim().to_string();
-                                    if !tr.is_empty() {
-                                        let _ = a2.emit("download-progress", serde_json::json!({
-                                            "progress": 0, "message": tr, "status": "downloading",
-                                        }));
-                                    }
-                                }
-                            }
-                        }))
-                    } else { None };
-
-                    let a3 = app_clone.clone();
-                    let h2 = if let Some(e) = err2 {
-                        Some(std::thread::spawn(move || {
-                            let mut r = BufReader::new(e);
-                            let mut b = Vec::new();
-                            while let Ok(n) = r.read_until(b'\r', &mut b) {
-                                if n == 0 { break; }
-                                let text = String::from_utf8_lossy(&b).trim().to_string();
-                                b.clear();
-                                if text.is_empty() { continue; }
-                                let pct = text.split('%').next()
-                                    .and_then(|s| s.split_whitespace().last())
-                                    .and_then(|s| s.parse::<u32>().ok());
-                                let _ = a3.emit("download-progress", serde_json::json!({
-                                    "progress": pct.unwrap_or(0), "message": text, "status": "downloading",
-                                }));
-                            }
-                        }))
-                    } else { None };
-
-                    if let Some(h) = h1 { let _ = h.join(); }
-                    if let Some(h) = h2 { let _ = h.join(); }
-
-                    let status2 = child2.wait();
-                    let ok2 = status2.as_ref().map(|s| s.success()).unwrap_or(false);
-
-                    if ok2 {
-                        soul_log("INFO", "download", &format!("重试第{}次下载完成: {}", rc, model_clone));
-                        let _ = app_clone.emit("download-progress", serde_json::json!({
-                            "progress": 100,
-                            "message": format!("{} 重试第 {} 次下载完成！", model_clone, rc),
-                            "status": "completed",
-                        }));
-                    } else {
-                        let code2 = status2.as_ref().map(|s| s.code().unwrap_or(-1)).unwrap_or(-1);
-                        soul_log("ERROR", "download", &format!("重试第{}次仍失败, 退出码={}", rc, code2));
-                        let err_msg = if rc >= max_retries {
-                            format!("{} 下载失败：已自动重试 {} 次均失败，请检查网络后点击重试", model_clone, max_retries)
-                        } else {
-                            format!("{} 重试下载失败（退出码: {}），请点击重试按钮", model_clone, code2)
-                        };
-                        let _ = app_clone.emit("download-progress", serde_json::json!({
-                            "progress": 0,
-                            "message": err_msg,
-                            "status": "error",
-                            "retryable": true,
-                        }));
-                    }
-                } else {
-                    soul_log("ERROR", "download", "自动重试无法启动 modelscope");
-                    let _ = app_clone.emit("download-progress", serde_json::json!({
-                        "progress": 0,
-                        "message": format!("自动重试失败，请手动重试"),
-                        "status": "error",
-                        "retryable": true,
-                    }));
-                }
-            } else {
-                soul_log("ERROR", "download", &format!("SHA256 校验失败，已达最大重试次数 {}", max_retries));
-                let _ = app_clone.emit("download-progress", serde_json::json!({
-                    "progress": 0,
-                    "message": format!("{} 下载：已自动重试 {} 次均失败，请检查网络或模型 ID", model_clone, max_retries),
-                    "status": "error",
-                    "retryable": true,
-                }));
+                continue;
             }
+            let _ = app_clone.emit("download-progress", serde_json::json!({
+                "progress": 0,
+                "message": format!("{} 下载失败：已尝试 {} 次，文件始终异常，请检查磁盘或网络", model_clone, attempts_done),
+                "status": "error",
+                "retryable": true,
+            }));
         }
+        } // loop
     });
 
-    Ok(format!("下载已开始 (PID: {})", pid))
+    Ok("下载已开始".to_string())
 }
 
 /// 重试下载（使用上次的参数）
@@ -4259,10 +4166,42 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
     Ok(dest.to_string_lossy().to_string())
 }
 
+/// 计算文件 SHA256（用于更新包完整性校验）
+fn sha256_file(path: &std::path::Path) -> Result<String, String> {
+    let mut file = std::fs::File::open(path).map_err(|e| format!("无法打开文件: {}", e))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| format!("读取失败: {}", e))?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 /// 安装更新：生成提权批处理（杀进程 → msiexec 静默安装 → 重启新版），
 /// 经 PowerShell -Verb RunAs 触发一次 UAC，之后由批处理接管整个流程。
+/// 服务器下发了 sha256 时，先校验安装包完整性再提权。
 #[tauri::command]
-fn install_update(app_handle: tauri::AppHandle, msi_path: String) -> Result<String, String> {
+fn install_update(app_handle: tauri::AppHandle, msi_path: String, expected_sha256: Option<String>) -> Result<String, String> {
+    // 完整性校验（服务器提供 hash 时）
+    if let Some(expected) = expected_sha256 {
+        let expected = expected.trim().to_lowercase();
+        if !expected.is_empty() {
+            soul_log("INFO", "update", "校验更新包 SHA256...");
+            let actual = sha256_file(std::path::Path::new(&msi_path))?;
+            if actual != expected {
+                soul_log_detail("ERROR", "update", "更新包 SHA256 不匹配", &format!("期望 {} 实得 {}", expected, actual));
+                let _ = app_handle.emit("update-progress", serde_json::json!({
+                    "status": "error", "progress": 0,
+                    "message": "更新包校验失败（SHA256 不匹配），文件可能损坏，请重试下载",
+                }));
+                return Err("更新包校验失败（SHA256 不匹配），文件可能损坏，请重试下载".to_string());
+            }
+            soul_log("INFO", "update", "更新包 SHA256 校验通过");
+        }
+    }
+
     let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
     let exe_name = exe.file_name().and_then(|s| s.to_str())
         .ok_or("获取程序名失败")?.to_string();

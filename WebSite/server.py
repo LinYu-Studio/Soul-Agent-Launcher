@@ -90,6 +90,7 @@ def api_check_update():
         "has_update": has_update,
         "latest_version": version_info.get('latest_version', '0.0.0'),
         "download_url": version_info.get('download_url', ''),
+        "sha256": version_info.get('sha256', ''),
         "release_notes": version_info.get('release_notes', ''),
         "force_update": version_info.get('force_update', False),
         "release_date": version_info.get('release_date', ''),
@@ -150,16 +151,23 @@ def admin_update_version():
     release_notes = request.form.get('release_notes', '').strip()
     force_update = request.form.get('force_update', 'off') == 'on'
     release_date = request.form.get('release_date', datetime.date.today().isoformat())
-    
+
     # 找到最新上传的文件作为下载 URL
     download_url = ''
+    sha256 = ''
     uploaded_file = request.files.get('file')
     if uploaded_file and uploaded_file.filename:
         safe_name = secure_filename(uploaded_file.filename)
         file_path = UPLOAD_DIR / safe_name
         uploaded_file.save(file_path)
         download_url = f'/downloads/{safe_name}'
-    
+        # 上传即计算 SHA256，随 current.json 下发，客户端安装前校验
+        h = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                h.update(chunk)
+        sha256 = h.hexdigest()
+
     if latest_version:
         data = load_current_version()
         data['latest_version'] = latest_version
@@ -167,10 +175,11 @@ def admin_update_version():
             data['release_notes'] = release_notes
         if download_url:
             data['download_url'] = download_url
+            data['sha256'] = sha256
         data['force_update'] = force_update
         data['release_date'] = release_date
         save_current_version(data)
-    
+
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/logout')

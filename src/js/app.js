@@ -68,7 +68,7 @@ function showUpdateCard(data) {
             '</div>' +
         '</div>' +
         '<div class="update-card-actions">' +
-            '<button class="btn btn-accent" onclick="doUpdate(\'' + data.download_url + '\')">更新</button>' +
+            '<button class="btn btn-accent" onclick="doUpdate(\'' + data.download_url + '\',\'' + (data.sha256 || '') + '\')">更新</button>' +
             '<button class="btn btn-outline" onclick="skipUpdate(\'' + data.latest_version + '\')">跳过</button>' +
         '</div>';
 
@@ -79,8 +79,8 @@ function showUpdateCard(data) {
     });
 }
 
-/// 应用内更新：下载 MSI → UAC 提权静默安装 → 自动重启新版
-window.doUpdate = function(url) {
+/// 应用内更新：下载 MSI → SHA256 校验（服务器提供 hash 时）→ UAC 提权静默安装 → 自动重启新版
+window.doUpdate = function(url, sha256) {
     try {
         if (url && url.indexOf('http') !== 0) url = new URL(UPDATE_API_URL).origin + url;
     } catch (e) {}
@@ -98,11 +98,11 @@ window.doUpdate = function(url) {
             if (p.status === 'downloading' && btn) btn.textContent = '下载中 ' + (p.progress || 0) + '%';
             if (desc && p.message) desc.textContent = p.message;
             if (p.status === 'completed') {
-                if (btn) btn.textContent = '启动安装...';
-                if (desc) desc.textContent = '下载完成，即将弹出 UAC 授权窗口~';
-                window.__TAURI__.core.invoke('install_update', { msiPath: p.path })
+                if (btn) btn.textContent = sha256 ? '校验中...' : '启动安装...';
+                if (desc) desc.textContent = sha256 ? '下载完成，正在校验 SHA256 完整性...' : '下载完成，即将弹出 UAC 授权窗口~';
+                window.__TAURI__.core.invoke('install_update', { msiPath: p.path, expectedSha256: sha256 || null })
                     .catch(function(e) {
-                        if (btn) { btn.disabled = false; btn.textContent = '重试安装'; }
+                        if (btn) { btn.disabled = false; btn.textContent = '重试下载'; }
                         if (desc) desc.textContent = '启动安装失败: ' + e + '（可取消后手动运行下载的 MSI）';
                     });
             } else if (p.status === 'installing') {
