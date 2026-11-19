@@ -4118,6 +4118,177 @@ fn get_sessions_dir() -> PathBuf {
     PathBuf::from(base).join("Soul-Agent-Launcher").join("sessions")
 }
 
+// ============================================================
+// 开机自启 / 应用退出 / 应用内更新 / 会话全局搜索
+// ============================================================
+
+#[cfg(windows)]
+const AUTORUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+#[cfg(windows)]
+const AUTORUN_NAME: &str = "SoulAgentLauncher";
+
+/// 查询开机自启状态（HKCU Run 注册表项）
+#[tauri::command]
+fn get_auto_launch() -> bool {
+    #[cfg(windows)]
+    {
+        new_hidden_cmd("reg")
+            .args(["query", AUTORUN_KEY, "/v", AUTORUN_NAME])
+            .output()
+            .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains(AUTORUN_NAME))
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// 设置开机自启（注册表 HKCU Run，无需管理员权限；--tray 表示启动后最小化到托盘）
+#[tauri::command]
+fn set_auto_launch(enable: bool) -> Result<String, String> {
+    soul_log("INFO", "settings", &format!("set_auto_launch enable={}", enable));
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
+        if enable {
+            let value = format!("\"{}\" --tray", exe.to_string_lossy());
+            new_hidden_cmd("reg")
+                .args(["add", AUTORUN_KEY, "/v", AUTORUN_NAME, "/t", "REG_SZ", "/d", &value, "/f"])
+                .output()
+                .map_err(|e| format!("写入注册表失败: {}", e))?;
+            Ok("已开启开机自启（将以托盘模式后台启动）".to_string())
+        } else {
+            new_hidden_cmd("reg")
+                .args(["delete", AUTORUN_KEY, "/v", AUTORUN_NAME, "/f"])
+                .output()
+                .map_err(|e| format!("写入注册表失败: {}", e))?;
+            Ok("已关闭开机自启".to_string())
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = enable;
+        Err("仅支持 Windows".to_string())
+    }
+}
+
+/// 退出应用（退出前清理模型进程）。此前前端在调用但后端从未注册。
+#[tauri::command]
+fn close_app(app_handle: tauri::AppHandle, state: State<RunningModelsState>) -> Result<(), String> {
+    soul_log("INFO", "main", "close_app：退出应用");
+    if let Ok(models) = state.models.lock() {
+        for m in models.iter() {
+            if let Ok(pid) = m.pid.parse::<u32>() {
+                let _ = new_hidden_cmd("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+            }
+        }
+    }
+    app_handle.exit(0);
+    Ok(())
+}
+
+/// 应用内下载更新包（MSI），进度通过 update-progress 事件推送（异步线程执行）
+#[tauri::command]
+fn download_update(app_handle: tauri::AppHandle, url: String) -> Result<String, String> {
+    let app = app_handle.clone();
+    std::thread::spawn(move || {
+        soul_log("INFO", "update", &format!("开始下载更新包: {}", url));
+        match download_update_blocking(&app, &url) {
+            Ok(path) => {
+                soul_log("INFO", "update", &format!("更新包下载完成: {:?}", path));
+                let _ = app.emit("update-progress", serde_json::json!({
+                    "status": "completed", "progress": 100, "path": path, "message": "下载完成",
+                }));
+            }
+            Err(e) => {
+                soul_log_detail("ERROR", "update", "更新包下载失败", &e);
+                let _ = app.emit("update-progress", serde_json::json!({
+                    "status": "error", "progress": 0, "message": e,
+                }));
+            }
+        }
+    });
+    Ok("下载已开始".to_string())
+}
+
+fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
+    let dest = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi");
+    let mut resp = reqwest::blocking::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(1800))
+        .send()
+        .map_err(|e| format!("连接更新服务器失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("更新服务器返回 {}", resp.status()));
+    }
+    let total = resp.content_length().unwrap_or(0);
+    let mut file = std::fs::File::create(&dest).map_err(|e| format!("创建临时文件失败: {}", e))?;
+    let mut received: u64 = 0;
+    let mut last_pct = 100u32; // 首个字节必触发一次 0% 事件
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = resp.read(&mut buffer).map_err(|e| format!("下载中断: {}", e))?;
+        if n == 0 { break; }
+        file.write_all(&buffer[..n]).map_err(|e| format!("写入失败: {}", e))?;
+        received += n as u64;
+        if total > 0 {
+            let pct = ((received as f64 / total as f64) * 100.0) as u32;
+            if pct != last_pct {
+                last_pct = pct;
+                let _ = app.emit("update-progress", serde_json::json!({
+                    "status": "downloading", "progress": pct,
+                    "message": format!("已下载 {:.1}MB / {:.1}MB", received as f64 / 1048576.0, total as f64 / 1048576.0),
+                }));
+            }
+        }
+    }
+    file.flush().ok();
+    if total > 0 && received != total {
+        return Err(format!("下载不完整（{}/{} 字节），请重试", received, total));
+    }
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// 安装更新：生成提权批处理（杀进程 → msiexec 静默安装 → 重启新版），
+/// 经 PowerShell -Verb RunAs 触发一次 UAC，之后由批处理接管整个流程。
+#[tauri::command]
+fn install_update(app_handle: tauri::AppHandle, msi_path: String) -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {}", e))?;
+    let exe_name = exe.file_name().and_then(|s| s.to_str())
+        .ok_or("获取程序名失败")?.to_string();
+    let exe_path = exe.to_string_lossy().to_string();
+
+    let bat = std::env::temp_dir().join("SAL_update_install.cmd");
+    let content = format!(
+        "@echo off\r\n\
+         taskkill /f /im \"{exe_name}\" >nul 2>&1\r\n\
+         timeout /t 2 /nobreak >nul\r\n\
+         msiexec /i \"{msi_path}\" /qn /norestart\r\n\
+         timeout /t 2 /nobreak >nul\r\n\
+         start \"\" \"{exe_path}\"\r\n",
+        exe_name = exe_name,
+        msi_path = msi_path,
+        exe_path = exe_path,
+    );
+    std::fs::write(&bat, content).map_err(|e| format!("写入安装脚本失败: {}", e))?;
+
+    soul_log("INFO", "update", &format!("启动更新安装: msi={:?} exe={:?}", msi_path, exe));
+    let ps = format!(
+        "Start-Process -FilePath '{}' -Verb RunAs -WindowStyle Hidden",
+        bat.to_string_lossy().replace('\'', "''"),
+    );
+    new_hidden_cmd("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .spawn()
+        .map_err(|e| format!("启动安装程序失败: {}", e))?;
+
+    let _ = app_handle.emit("update-progress", serde_json::json!({
+        "status": "installing", "progress": 100, "message": "已提交系统安装",
+    }));
+            Ok("安装程序已启动".to_string())
+}
+
 fn generate_id() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
@@ -4470,6 +4641,14 @@ fn main() {
                 })
                 .build(app)?;
 
+            // 以 --tray 启动（开机自启场景）：隐藏主窗口，仅在托盘驻留
+            if std::env::args().any(|a| a == "--tray") {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                    soul_log("INFO", "main", "以 --tray 模式启动，窗口已隐藏到托盘");
+                }
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -4508,6 +4687,9 @@ fn main() {
             check_standby,
             check_idle,
             get_sleep_logs,
+            get_auto_launch,
+            set_auto_launch,
+            close_app,
             start_server,
             stop_server,
             wake_server,

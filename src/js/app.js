@@ -328,6 +328,40 @@ function confirmMode() {
 // ============================================================
 // 初始化
 // ============================================================
+
+/// 启动时恢复上次运行的模型（设置开关：launcher-restore-models，默认开）
+async function restoreLastModels() {
+    if (localStorage.getItem('launcher-restore-models') === 'false') return;
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem('last-running-models') || '[]'); } catch (e) { return; }
+    if (!Array.isArray(saved) || saved.length === 0) return;
+    var llamaPath = localStorage.getItem('launcher-llama-path') || '';
+    if (!llamaPath) { debugLog('恢复模型跳过：未配置 llama.cpp 路径'); return; }
+    var basePort = parseInt(localStorage.getItem('launcher-port') || '20000', 10) || 20000;
+    debugLog('开始恢复上次运行的模型，共 ' + saved.length + ' 个');
+    var restored = 0;
+    for (var i = 0; i < saved.length; i++) {
+        var m = saved[i];
+        if (!m || !m.model_path || (m.name || '').indexOf('bench-') === 0) continue;
+        try {
+            await window.__TAURI__.core.invoke('start_model', {
+                llamaPath: llamaPath,
+                modelPath: m.model_path,
+                modelName: m.name || '',
+                port: basePort + restored * 2,
+                ctx: m.ctx || 4096,
+            });
+            restored++;
+        } catch (e) {
+            debugLog('恢复模型失败 ' + (m.name || '') + ': ' + e);
+        }
+    }
+    if (restored > 0) {
+        debugLog('已恢复 ' + restored + ' 个模型');
+        showKbToast('已自动恢复上次运行的 ' + restored + ' 个模型');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     debugLog('DOMContentLoaded 开始');
 
@@ -414,6 +448,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
     initNavigation();
     initLaunchPage();
+    // 在轮询持久化之前读取上次状态并恢复（读操作是同步的，无竞态）
+    restoreLastModels();
     startStatusPolling();
 
     // 延迟 5 秒检查更新
@@ -855,6 +891,14 @@ async function pollServerStatus() {
         var running = models && models.length > 0;
         var modelNames = running ? models.map(function(m) { return m.name; }).join(', ') : '';
         var totalVram = running ? models.reduce(function(sum, m) { return sum + (m.vram_mb || 0); }, 0) : 0;
+
+        // 持久化"上次运行的模型"列表（供下次启动恢复；跳过跑分专用实例）
+        try {
+            var snapshot = (models || [])
+                .filter(function(m) { return m.name && m.name.indexOf('bench-') !== 0; })
+                .map(function(m) { return { name: m.name, model_path: m.model_path, ctx: m.ctx }; });
+            localStorage.setItem('last-running-models', JSON.stringify(snapshot));
+        } catch (e) {}
 
         // 如果无模型运行，检查服务器是否正在加载（HTTP 503 = Loading model）
         var loading = false;
@@ -3451,6 +3495,27 @@ function loadSettings() {
     const autoUnload = localStorage.getItem('launcher-auto-unload');
     const autoUnloadEl = document.getElementById('autoUnloadModels');
     if (autoUnloadEl) autoUnloadEl.checked = autoUnload !== 'false';  // 默认 true
+
+    // 开机自启（读注册表实时状态；变更立即生效，不等"保存设置"）
+    const autoLaunchEl = document.getElementById('autoLaunchOnBoot');
+    if (autoLaunchEl) {
+        if (window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('get_auto_launch')
+                .then(function(v) { autoLaunchEl.checked = !!v; })
+                .catch(function() {});
+        }
+        autoLaunchEl.onchange = function() {
+            var v = autoLaunchEl.checked;
+            autoLaunchEl.disabled = true;
+            window.__TAURI__.core.invoke('set_auto_launch', { enable: v })
+                .then(function(msg) { showKbToast(msg); })
+                .catch(function(e) { alert('设置开机自启失败: ' + e); autoLaunchEl.checked = !v; })
+                .finally(function() { autoLaunchEl.disabled = false; });
+        };
+    }
+    // 启动时恢复上次运行的模型
+    const restoreEl = document.getElementById('restoreModelsOnBoot');
+    if (restoreEl) restoreEl.checked = localStorage.getItem('launcher-restore-models') !== 'false';
 }
 
 function onLangChange(value) {
@@ -3480,6 +3545,12 @@ function saveSettings() {
     const autoUnloadEl = document.getElementById('autoUnloadModels');
     if (autoUnloadEl) {
         localStorage.setItem('launcher-auto-unload', autoUnloadEl.checked);
+    }
+
+    // 保存"启动时恢复模型"开关
+    const restoreEl = document.getElementById('restoreModelsOnBoot');
+    if (restoreEl) {
+        localStorage.setItem('launcher-restore-models', restoreEl.checked ? 'true' : 'false');
     }
 
     // 同步启动页面的端口和上下文
