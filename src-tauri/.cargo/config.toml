@@ -1,0 +1,4 @@
+# 本机工作区路径含非 ASCII（F:\鲸鲸\...），MSVC 工具链对非 ASCII 构建目录不稳定，
+# 统一把构建产物放到纯 ASCII 路径（见根目录 dev-build.bat 的环境修补说明）
+[build]
+target-dir = "F:/sal_target"
