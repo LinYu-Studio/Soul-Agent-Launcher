@@ -820,6 +820,48 @@
                     </div>
                 </div>
 
+                <div class="settings-section">
+                    <h3 class="section-title">环境修复</h3>
+                    <div class="form-hint" style="margin-bottom:10px;">组件异常时一键重装（Python/pip/ModelScope 是模型下载的依赖，加速端按硬件自动匹配）</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
+                            <span id="envDot-python" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
+                            <div style="flex:1;">
+                                <div style="font-size:13px;">Python 运行时</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-python">未检测</div>
+                            </div>
+                            <button class="btn btn-sm" id="envBtn-python" onclick="checkEnvComponent('python')">检测</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
+                            <span id="envDot-pip" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
+                            <div style="flex:1;">
+                                <div style="font-size:13px;">pip 包管理器</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-pip">未检测</div>
+                            </div>
+                            <button class="btn btn-sm" id="envBtn-pip" onclick="checkEnvComponent('pip')">检测</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
+                            <span id="envDot-mscope" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
+                            <div style="flex:1;">
+                                <div style="font-size:13px;">ModelScope 下载工具</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-mscope">未检测</div>
+                            </div>
+                            <button class="btn btn-sm" id="envBtn-mscope" onclick="checkEnvComponent('mscope')">检测</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
+                            <span id="envDot-backend" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
+                            <div style="flex:1;">
+                                <div style="font-size:13px;">llama.cpp 加速端</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-backend">未检测</div>
+                            </div>
+                            <button class="btn btn-sm" id="envBtn-backend" onclick="checkEnvComponent('backend')">检测</button>
+                        </div>
+                    </div>
+                    <div class="card-actions" style="margin-top:10px;">
+                        <button class="btn" onclick="runEnvCheck()">全部重新检测</button>
+                    </div>
+                </div>
+
                 <div class="card-actions" style="margin-top:24px;">
                     <button class="btn btn-accent" onclick="saveSettings()">保存设置</button>
                     <button class="btn btn-outline" onclick="checkUpdate(this)">检查更新</button>

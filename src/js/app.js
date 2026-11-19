@@ -247,7 +247,7 @@ function showStepError(stepId, msg, skippable) {
         if (!box || !title || !msgEl) { resolve(true); return; }
 
         title.textContent = '提示';
-        msgEl.textContent = `${msg}\n\n${skippable ? '点击「跳过」可继续，之后可手动配置。' : '点击「重试」再试一次。'}`;
+        msgEl.textContent = `${msg}\n\n${skippable ? '点击「跳过」可继续；也可稍后在 设置 → 环境修复 一键重装。' : '点击「重试」再试一次。'}`;
         skipBtn.style.display = skippable ? 'inline-block' : 'none';
         box.classList.remove('hidden');
 
@@ -721,8 +721,9 @@ function updateSetupProgress(progress, message) {
     const text = document.getElementById('setupProgressText');
     const msg = document.getElementById('setupMessage');
 
-    fill.style.width = progress + '%';
-    text.textContent = `${progress}%`;
+    // 这两个元素在当前版 setup 弹窗中已不存在（旧回退路径仍会调用），判空防崩
+    if (fill) fill.style.width = progress + '%';
+    if (text) text.textContent = `${progress}%`;
     if (msg) msg.textContent = message;
 }
 
@@ -875,6 +876,90 @@ function initNavigation() {
     });
 }
 
+// ============================================================
+// 环境修复面板（设置页）：检测 Python/pip/ModelScope/加速端 并一键重装
+// ============================================================
+
+var _envChecked = false;
+var _envBusy = false;
+
+async function runEnvCheck() {
+    if (_envBusy) return;
+    _envBusy = true;
+    await checkEnvComponent('python');
+    await checkEnvComponent('pip');
+    await checkEnvComponent('mscope');
+    await checkEnvComponent('backend');
+    _envBusy = false;
+}
+
+async function checkEnvComponent(kind) {
+    var dot = document.getElementById('envDot-' + kind);
+    var msg = document.getElementById('envMsg-' + kind);
+    var btn = document.getElementById('envBtn-' + kind);
+    var invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke || !dot || !msg) return;
+    if (btn) { btn.disabled = true; btn.textContent = '检测中'; }
+    dot.style.background = '#ffb74d';
+    msg.textContent = '检测中...';
+    var ok = false;
+    try {
+        if (kind === 'python') {
+            ok = await invoke('check_python_installed');
+            msg.textContent = ok ? '正常' : '缺失，可一键安装（会弹出权限窗口）';
+        } else if (kind === 'pip') {
+            ok = await invoke('check_pip_installed');
+            msg.textContent = ok ? '正常' : '缺失，可一键安装';
+        } else if (kind === 'mscope') {
+            ok = await invoke('check_modelscope_available');
+            msg.textContent = ok ? '正常' : '缺失，可一键安装（模型下载的依赖）';
+        } else if (kind === 'backend') {
+            var r = await invoke('check_llama_installed');
+            ok = !!(r && r.installed && !r.update_needed);
+            msg.textContent = ok
+                ? ('正常' + (r.package_key ? '（当前: ' + r.package_key + '）' : ''))
+                : '需要安装或按硬件重装';
+        }
+    } catch (e) {
+        ok = false;
+        msg.textContent = '检测失败: ' + e;
+    }
+    dot.style.background = ok ? '#4CAF50' : '#E57373';
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = ok ? '重新安装' : '一键修复';
+        btn.onclick = function() { repairEnvComponent(kind); };
+    }
+}
+
+async function repairEnvComponent(kind) {
+    var invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke || _envBusy) return;
+    _envBusy = true;
+    var dot = document.getElementById('envDot-' + kind);
+    var msg = document.getElementById('envMsg-' + kind);
+    var btn = document.getElementById('envBtn-' + kind);
+    var names = { python: 'Python', pip: 'pip', mscope: 'ModelScope', backend: 'llama.cpp 加速端' };
+    if (btn) { btn.disabled = true; btn.textContent = '修复中'; }
+    if (dot) dot.style.background = '#ffb74d';
+    if (msg) msg.textContent = '修复中，可能弹出权限窗口，请留意~';
+    try {
+        if (kind === 'python') await invoke('install_python');
+        else if (kind === 'pip') await invoke('install_pip');
+        else if (kind === 'mscope') await invoke('install_modelscope');
+        else if (kind === 'backend') await invoke('check_and_sync_backend', { force: true });
+        if (msg) msg.textContent = '修复完成 ✓';
+        if (dot) dot.style.background = '#4CAF50';
+        if (btn) { btn.disabled = false; btn.textContent = '重新安装'; btn.onclick = function() { repairEnvComponent(kind); }; }
+        showKbToast('环境修复完成: ' + (names[kind] || kind));
+    } catch (e) {
+        if (msg) msg.textContent = '修复失败: ' + e;
+        if (dot) dot.style.background = '#E57373';
+        if (btn) { btn.disabled = false; btn.textContent = '重试修复'; btn.onclick = function() { repairEnvComponent(kind); }; }
+    }
+    _envBusy = false;
+}
+
 function switchPage(pageId) {
     // 更新导航高亮
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -891,6 +976,7 @@ function switchPage(pageId) {
         if (pageId === 'chat') { updateLiteInputState(); detectAndShowKbTool(); }
         if (pageId === 'sessions') { loadSessionList(); }
         if (pageId === 'knowledge') { initKnowledgePage(); }
+        if (pageId === 'settings' && !_envChecked) { _envChecked = true; runEnvCheck(); }
     } else {
         // 默认回到首页
         document.querySelector('.nav-item[data-page="home"]')?.classList.add('active');

@@ -1580,8 +1580,9 @@ fn find_bundled_zips(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
 
 /// 检查并同步后端（每次启动时调用）
 #[tauri::command]
-async fn check_and_sync_backend(app_handle: tauri::AppHandle) -> Result<String, String> {
-    soul_log("INFO", "setup", "check_and_sync_backend 开始");
+async fn check_and_sync_backend(app_handle: tauri::AppHandle, force: Option<bool>) -> Result<String, String> {
+    let force = force.unwrap_or(false);
+    soul_log("INFO", "setup", &format!("check_and_sync_backend 开始 (force={})", force));
     let install_dir = get_install_dir();
     let launcher_dir = install_dir.parent().unwrap_or(&install_dir);
     let device_path = launcher_dir.join("device.json");
@@ -1597,9 +1598,12 @@ async fn check_and_sync_backend(app_handle: tauri::AppHandle) -> Result<String, 
     // 判断是否需要同步
     let need_sync = match &installed_key {
         Some(key) if key == &target_key => {
-            // 同一后端 → 检查服务器是否存在
+            // 同一后端 → 检查服务器是否存在（force=true 时无视一致性强制重装，供环境修复面板使用）
             if !install_dir.join("llama-server.exe").exists() {
                 soul_log("INFO", "setup", &format!("llama-server.exe 不存在，需重新解压 (key={})", key));
+                true
+            } else if force {
+                soul_log("INFO", "setup", &format!("强制重装后端包: {}", key));
                 true
             } else {
                 soul_log("DEBUG", "setup", &format!("后端一致且文件完整: {} (无需操作)", key));
@@ -2915,7 +2919,7 @@ async fn start_model_download(
     if let Ok(mut ld) = state.local_dir.lock() { *ld = local_dir.clone(); }
     if let Ok(mut ip) = state.include_pattern.lock() { *ip = include_pattern.clone(); }
 
-    let mut pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
+    let pid_guard = state.pid.lock().map_err(|e| e.to_string())?;
 
     if let Some(pid) = *pid_guard {
         #[cfg(windows)]
