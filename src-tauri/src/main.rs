@@ -4289,6 +4289,77 @@ fn install_update(app_handle: tauri::AppHandle, msi_path: String) -> Result<Stri
     Ok("安装程序已启动".to_string())
 }
 
+/// 全局搜索结果条目
+#[derive(Serialize)]
+struct SessionSearchHit {
+    session_id: String,
+    session_title: String,
+    message_index: usize,
+    role: String,
+    snippet: String,
+}
+
+/// 全局搜索：跨所有会话的消息内容搜索（不区分大小写，命中返回上下文片段）
+#[tauri::command]
+fn search_sessions(query: String, limit: Option<usize>) -> Result<Vec<SessionSearchHit>, String> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let max = limit.unwrap_or(50);
+    let dir = get_sessions_dir();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    soul_log("INFO", "session", &format!("search_sessions query={:?} limit={}", query, max));
+
+    let mut hits: Vec<SessionSearchHit> = Vec::new();
+    let mut entries: Vec<std::fs::DirEntry> = std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .collect();
+    // 会话 id 形如 s{秒}{随机}，字典序≈创建时间序，倒序优先搜新会话
+    entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+
+    for entry in entries {
+        if hits.len() >= max { break; }
+        let path = entry.path();
+        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if !name.ends_with(".msgs.json") { continue; }
+        let session_id = name.trim_end_matches(".msgs.json").to_string();
+        let content = match std::fs::read_to_string(&path) { Ok(c) => c, Err(_) => continue };
+        let msgs: Vec<serde_json::Value> = match serde_json::from_str(&content) { Ok(v) => v, Err(_) => continue };
+
+        let title = std::fs::read_to_string(dir.join(format!("{}.json", session_id))).ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|m| m.get("title").and_then(|t| t.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| "未命名会话".to_string());
+
+        for (idx, msg) in msgs.iter().enumerate() {
+            if hits.len() >= max { break; }
+            let text = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+            let lower = text.to_lowercase();
+            // to_lowercase 可能改变字节长度（极少数 Unicode 字符），此时放弃精确切片
+            let pos = lower.find(&q).and_then(|p| if lower.len() == text.len() { Some(p) } else { None });
+            if let Some(p) = pos {
+                let mut start = p.saturating_sub(40);
+                while start > 0 && !text.is_char_boundary(start) { start -= 1; }
+                let mut end = (p + q.len() + 40).min(text.len());
+                while end < text.len() && !text.is_char_boundary(end) { end += 1; }
+                let snippet = text[start..end].replace(['\n', '\r'], " ");
+                hits.push(SessionSearchHit {
+                    session_id: session_id.clone(),
+                    session_title: title.clone(),
+                    message_index: idx,
+                    role: msg.get("role").and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                    snippet: format!("{}{}{}", if start > 0 { "…" } else { "" }, snippet, if end < text.len() { "…" } else { "" }),
+                });
+            }
+        }
+    }
+    Ok(hits)
+}
+
 fn generate_id() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
@@ -4692,6 +4763,7 @@ fn main() {
             close_app,
             download_update,
             install_update,
+            search_sessions,
             start_server,
             stop_server,
             wake_server,

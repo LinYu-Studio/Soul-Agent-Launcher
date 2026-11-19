@@ -4769,6 +4769,46 @@ async function loadSessionList() {
 /// 简单的 HTML 转义
 function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+/// 全局搜索会话消息（跨全部会话，不区分大小写）
+async function doSearchSessions() {
+    var input = document.getElementById('sessionSearchInput');
+    var box = document.getElementById('sessionSearchResults');
+    if (!input || !box) return;
+    var q = input.value.trim();
+    if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
+    box.innerHTML = '<div style="padding:8px;color:var(--text-tertiary);font-size:12px;">搜索中...</div>';
+    try {
+        var hits = await window.__TAURI__.core.invoke('search_sessions', { query: q, limit: 50 });
+        if (!hits || hits.length === 0) {
+            box.innerHTML = '<div style="padding:8px;color:var(--text-tertiary);font-size:12px;">没有找到包含 "' + escHtml(q) + '" 的消息</div>';
+            return;
+        }
+        var html = '<div style="font-size:12px;color:var(--text-tertiary);margin-bottom:6px;">找到 ' + hits.length + ' 条相关消息，点击跳转：</div>';
+        hits.forEach(function(h, i) {
+            html += '<div style="cursor:pointer;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;margin-bottom:6px;font-size:12px;" ' +
+                    'onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border-color)\'" ' +
+                    'onclick="openSearchHit(' + i + ')">' +
+                    '<div style="color:var(--accent);margin-bottom:3px;">📝 ' + escHtml(h.session_title) + ' · ' + (h.role === 'user' ? '用户' : '助手') + '</div>' +
+                    '<div style="color:var(--text-secondary);line-height:1.5;">' + escHtml(h.snippet) + '</div>' +
+                '</div>';
+        });
+        box.innerHTML = html;
+        window._searchHits = hits;
+    } catch (e) {
+        box.innerHTML = '<div style="padding:8px;color:#e57373;font-size:12px;">搜索失败: ' + escHtml(String(e)) + '</div>';
+    }
+}
+
+/// 跳转到命中的会话
+async function openSearchHit(i) {
+    var hits = window._searchHits || [];
+    var h = hits[i];
+    if (!h) return;
+    switchPage('chat');
+    await switchSession(h.session_id);
+}
+
 /// 创建新会话
 /// 显示聊天欢迎页（新建会话或清空时）
 function showChatWelcome() {

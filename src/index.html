@@ -841,6 +841,11 @@
                         </div>
                     </div>
                     <div class="card-body">
+                        <div style="display:flex;gap:8px;margin-bottom:12px;">
+                            <input type="text" id="sessionSearchInput" placeholder="搜索全部会话内容，Enter 搜索..." style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;" onkeydown="if(event.key==='Enter')doSearchSessions()">
+                            <button class="btn btn-sm" onclick="doSearchSessions()">搜索</button>
+                        </div>
+                        <div id="sessionSearchResults" style="display:none;margin-bottom:12px;"></div>
                         <div class="session-list" id="sessionList">
                             <div class="session-empty">暂无会话，点击「新建会话」开始。</div>
                         </div>
