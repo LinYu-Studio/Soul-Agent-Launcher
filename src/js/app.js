@@ -2905,6 +2905,64 @@ function closeConfirmDialog(confirmed) {
     }
 }
 
+// ---- 下载进度净化（纯前端修复：tqdm 乱码 / ANSI 光标码 / 进度条鬼畜）----
+// 后端有两条事件流：原始 stderr 行流（progress 恒为 0、message 为 tqdm 原文，
+// 含 GBK→UTF-8 乱码与 \x1b[A 光标码）和解析流（带真实 pct）。
+// 直接渲染会导致进度条反复归零（鬼畜）和乱码文案。
+var _dlShownPct = null;      // 当前展示的百分比（只许前进）
+var _dlShownFile = null;     // 当前文件名（多文件下载，换文件允许回退重计）
+var _dlPending = null;       // 节流窗口内挂起的最新渲染
+var _dlThrottleTimer = null;
+
+/// 解析 tqdm 进度行。对乱码免疫：文件名/数字/单位都是 ASCII 字段，不受 GBK 转换影响。
+function parseTqdmInfo(raw) {
+    if (!raw) return null;
+    var text = String(raw)
+        .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')   // ANSI 转义序列（光标控制等）
+        .replace(/\[A/g, '')                     // 残留的光标上移码
+        .replace(/\uFFFD/g, '');                 // 乱码占位符
+    var segs = text.split(/[\r\n]+/);
+    for (var i = segs.length - 1; i >= 0; i--) { // 取最新一段（多文件时最后一段是当前进度）
+        var seg = segs[i];
+        if (seg.indexOf('%') < 0 && seg.indexOf('/') < 0) continue;
+        var mfile = seg.match(/\[([^\[\]]+)\]:\s*\d{1,3}\s*%/);
+        var mpct = seg.match(/(\d{1,3})\s*%/);
+        var msize = seg.match(/(\d+(?:\.\d+)?[KMG]?B?)\s*\/\s*(\d+(?:\.\d+)?[KMG]?B?)/);
+        var mmeta = seg.match(/\[(\d+:\d+)<(\d+:\d+),\s*([\d.]+\s*[KMG]?B?\/s)/);
+        if (mpct || msize) {
+            return {
+                file: mfile ? mfile[1] : null,
+                pct: mpct ? Math.min(parseInt(mpct[1], 10), 100) : null,
+                size: msize ? msize[1] + '/' + msize[2] : null,
+                speed: mmeta ? mmeta[3] : null,
+                eta: mmeta ? mmeta[2] : null
+            };
+        }
+    }
+    return null;
+}
+
+function buildCleanDownloadMsg(info) {
+    var parts = [];
+    if (info.file) parts.push(info.file);
+    if (info.size) parts.push(info.size);
+    if (info.speed) parts.push(info.speed);
+    if (info.eta) parts.push('剩余 ' + info.eta);
+    return parts.length ? parts.join(' · ') : '正在下载...';
+}
+
+/// 节流渲染（tqdm 每秒吐多行，限频 ~5次/秒，窗口内始终渲染最新值）
+function renderDownloadProgress(pct, msg) {
+    _dlPending = [pct, msg];
+    if (_dlThrottleTimer) return;
+    _dlThrottleTimer = setTimeout(function() {
+        _dlThrottleTimer = null;
+        var p = _dlPending;
+        _dlPending = null;
+        if (p) updateDownloadProgress(p[0], p[1]);
+    }, 200);
+}
+
 /// 显示下载弹层
 let _downloadUnlisten = null;
 let _downloadPulseTimer = null;
@@ -2926,20 +2984,37 @@ function showDownloadOverlay(modelId) {
 
     _downloadDone = false;
     _downloadError = null;
+    _dlShownPct = null;
+    _dlShownFile = null;
+    _dlPending = null;
+    if (_dlThrottleTimer) { clearTimeout(_dlThrottleTimer); _dlThrottleTimer = null; }
 
-    var pulseProgress = 0;
+    updateDownloadProgress(0, '正在连接下载源...');
+    // 等待首条真实进度期间只做文字动画，不伪造进度条（避免与真实进度打架）
     _downloadPulseTimer = setInterval(function() {
-        if (pulseProgress < 95) {
-            pulseProgress += Math.random() * 3 + 0.5;
-            if (pulseProgress > 95) pulseProgress = 95;
-            updateDownloadProgress(Math.floor(pulseProgress), '正在下载中，请稍候...');
-        }
-    }, 3000);
+        var msgEl = document.getElementById('downloadProgressMsg');
+        if (msgEl) msgEl.textContent = '正在连接下载源' + '...'.slice(0, 1 + (Math.floor(Date.now() / 400) % 3));
+    }, 400);
 
     if (window.__TAURI__?.event?.listen) {
         window.__TAURI__.event.listen('download-progress', function(event) {
             var data = event.payload;
-            updateDownloadProgress(data.progress, data.message);
+
+            if (data.status === 'downloading') {
+                // 原始行流的 progress 恒为 0（会把进度条打回起点的元凶），
+                // 一律以消息里解析出的 pct 为准；进度只许前进，换文件才允许回退重计。
+                var info = parseTqdmInfo(data.message);
+                if (info && info.pct !== null) {
+                    if (info.file && _dlShownFile && info.file !== _dlShownFile) _dlShownPct = null;
+                    if (info.file) _dlShownFile = info.file;
+                    if (_dlShownPct === null || info.pct >= _dlShownPct) _dlShownPct = info.pct;
+                    renderDownloadProgress(_dlShownPct, buildCleanDownloadMsg(info));
+                } else if (typeof data.progress === 'number' && data.progress > 0) {
+                    if (_dlShownPct === null || data.progress >= _dlShownPct) _dlShownPct = data.progress;
+                    renderDownloadProgress(_dlShownPct, '正在下载...');
+                }
+                return;
+            }
 
             if (data.status === 'completed') {
                 _downloadDone = true; _downloadError = null;
@@ -2954,12 +3029,14 @@ function showDownloadOverlay(modelId) {
                 }
             } else if (data.status === 'error') {
                 _downloadError = data.message || '下载失败';
+                _dlShownPct = null;
                 updateDownloadProgress(0, data.message || '下载失败');
                 document.getElementById('cancelDownloadBtn').classList.add('hidden');
                 document.getElementById('retryDownloadBtn').classList.remove('hidden');
             } else if (data.status === 'verifying') {
                 updateDownloadProgress(99, data.message || '校验中...');
             } else if (data.status === 'retrying') {
+                _dlShownPct = null;
                 updateDownloadProgress(0, data.message || '重试中...');
                 document.getElementById('cancelDownloadBtn').classList.remove('hidden');
                 document.getElementById('retryDownloadBtn').classList.add('hidden');
@@ -2977,6 +3054,8 @@ function hideDownloadOverlay() {
     document.getElementById('downloadOverlay').classList.add('hidden');
     if (_downloadUnlisten) { _downloadUnlisten(); _downloadUnlisten = null; }
     if (_downloadPulseTimer) { clearInterval(_downloadPulseTimer); _downloadPulseTimer = null; }
+    if (_dlThrottleTimer) { clearTimeout(_dlThrottleTimer); _dlThrottleTimer = null; }
+    _dlPending = null;
 }
 
 /// 重试下载
