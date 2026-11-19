@@ -985,6 +985,32 @@ function switchPage(pageId) {
 }
 
 // ============================================================
+// 显存预警（加载前估算：模型体积 + KV cache + 运行开销 vs 可用显存）
+// ============================================================
+
+async function ensureVramOk(modelPath, ctx) {
+    try {
+        if (!window.__TAURI__?.core?.invoke) return true;
+        var vram = await window.__TAURI__.core.invoke('check_vram_free');
+        if (!vram || !vram.available) return true; // 无 NVIDIA 或查询失败 → 不拦截
+        var sizeMb = await window.__TAURI__.core.invoke('get_file_size_mb', { path: modelPath });
+        if (!sizeMb) return true;
+        // 粗估：GGUF 体积 + KV cache（约 0.5MB/1K token）+ 运行开销 500MB（-ngl 99 全量卸载）
+        var needMb = sizeMb + Math.ceil((ctx || 4096) / 1024 * 500) + 500;
+        if (needMb > vram.free_mb) {
+            return window.confirm('⚠️ 显存可能不足！\n\n' +
+                '模型约需 ' + (needMb / 1024).toFixed(1) + 'GB 显存（含上下文开销），' +
+                '当前可用 ' + (vram.free_mb / 1024).toFixed(1) + 'GB。\n\n' +
+                '继续加载可能失败或速度极慢。仍要继续吗？');
+        }
+        return true;
+    } catch (e) {
+        debugLog('显存检查跳过: ' + e);
+        return true;
+    }
+}
+
+// ============================================================
 // 服务管理 — 手动启动模型
 // ============================================================
 
@@ -1132,6 +1158,10 @@ async function startServer() {
         var port = basePort + i * 2;
 
         addConsoleLine('info', '正在启动模型: ' + modelName + ' (端口: ' + port + ', 上下文: ' + ctx + ')...');
+        if (!(await ensureVramOk(modelPath, ctx))) {
+            addConsoleLine('warn', modelName + ' 已跳过（用户取消：显存可能不足）');
+            continue;
+        }
         try {
             var result = await window.__TAURI__.core.invoke('start_model', {
                 llamaPath: llamaPath,
@@ -2155,6 +2185,10 @@ async function quickStartModels() {
         var port = basePort + i * 2;
 
         addConsoleLine('info', '正在启动模型: ' + modelName + ' (端口: ' + port + ', 上下文: ' + ctx + ')...');
+        if (!(await ensureVramOk(modelPath, ctx))) {
+            addConsoleLine('warn', modelName + ' 已跳过（用户取消：显存可能不足）');
+            continue;
+        }
         try {
             var result = await window.__TAURI__.core.invoke('start_model', {
                 llamaPath: llamaPath,

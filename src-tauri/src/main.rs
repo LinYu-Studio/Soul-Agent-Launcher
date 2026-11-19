@@ -4312,6 +4312,46 @@ fn search_sessions(query: String, limit: Option<usize>) -> Result<Vec<SessionSea
     Ok(hits)
 }
 
+/// 查询 NVIDIA 显存状态（多卡取空闲最大的一张；无 NVIDIA 返回 available=false）
+#[derive(Serialize)]
+struct VramStatus {
+    available: bool,
+    free_mb: u64,
+    total_mb: u64,
+}
+
+#[tauri::command]
+fn check_vram_free() -> VramStatus {
+    let mut best = VramStatus { available: false, free_mb: 0, total_mb: 0 };
+    let mut cmd = new_hidden_cmd("nvidia-smi");
+    cmd.args(["--query-gpu=memory.free,memory.total", "--format=csv,noheader,nounits"]);
+    if let Ok(out) = cmd.output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                let parts: Vec<&str> = line.split(',').collect();
+                if parts.len() >= 2 {
+                    if let (Ok(free), Ok(total)) = (
+                        parts[0].trim().parse::<u64>(),
+                        parts[1].trim().parse::<u64>(),
+                    ) {
+                        if free > best.free_mb {
+                            best = VramStatus { available: true, free_mb: free, total_mb: total };
+                        }
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+/// 查询文件大小（MB），用于加载前的显存估算
+#[tauri::command]
+fn get_file_size_mb(path: String) -> u64 {
+    std::fs::metadata(&path).map(|m| m.len() / (1024 * 1024)).unwrap_or(0)
+}
+
 fn generate_id() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
@@ -4716,6 +4756,8 @@ fn main() {
             download_update,
             install_update,
             search_sessions,
+            check_vram_free,
+            get_file_size_mb,
             start_server,
             stop_server,
             wake_server,
