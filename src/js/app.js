@@ -79,10 +79,49 @@ function showUpdateCard(data) {
     });
 }
 
+/// 应用内更新：下载 MSI → UAC 提权静默安装 → 自动重启新版
 window.doUpdate = function(url) {
-    if (url) window.open(url, '_blank');
+    try {
+        if (url && url.indexOf('http') !== 0) url = new URL(UPDATE_API_URL).origin + url;
+    } catch (e) {}
     var card = document.getElementById('updateCard');
-    if (card) card.remove();
+    var btn = card ? card.querySelector('.update-card-actions .btn-accent') : null;
+    var desc = card ? card.querySelector('.update-card-desc') : null;
+    var skipBtn = card ? card.querySelector('.update-card-actions .btn-outline') : null;
+    if (btn) { btn.disabled = true; btn.textContent = '下载中 0%'; }
+    if (skipBtn) skipBtn.style.display = 'none';
+
+    var unlisten = null;
+    if (window.__TAURI__?.event?.listen) {
+        window.__TAURI__.event.listen('update-progress', function(event) {
+            var p = event.payload || {};
+            if (p.status === 'downloading' && btn) btn.textContent = '下载中 ' + (p.progress || 0) + '%';
+            if (desc && p.message) desc.textContent = p.message;
+            if (p.status === 'completed') {
+                if (btn) btn.textContent = '启动安装...';
+                if (desc) desc.textContent = '下载完成，即将弹出 UAC 授权窗口~';
+                window.__TAURI__.core.invoke('install_update', { msiPath: p.path })
+                    .catch(function(e) {
+                        if (btn) { btn.disabled = false; btn.textContent = '重试安装'; }
+                        if (desc) desc.textContent = '启动安装失败: ' + e + '（可取消后手动运行下载的 MSI）';
+                    });
+            } else if (p.status === 'installing') {
+                if (desc) desc.textContent = '请在 UAC 弹窗点击"是"：应用将自动关闭 → 静默安装 → 自动启动新版（取消授权则不会安装）';
+            } else if (p.status === 'error') {
+                if (btn) { btn.disabled = false; btn.textContent = '重试下载'; }
+                if (desc) desc.textContent = p.message || '下载失败';
+            }
+            if (p.status === 'completed' || p.status === 'error' || p.status === 'installing') {
+                if (unlisten) unlisten();
+            }
+        }).then(function(u) { unlisten = u; });
+    }
+    if (window.__TAURI__?.core?.invoke) {
+        window.__TAURI__.core.invoke('download_update', { url: url }).catch(function(e) {
+            if (btn) { btn.disabled = false; btn.textContent = '重试下载'; }
+            if (desc) desc.textContent = '启动下载失败: ' + e;
+        });
+    }
 };
 
 window.skipUpdate = function(version) {

@@ -4286,7 +4286,7 @@ fn install_update(app_handle: tauri::AppHandle, msi_path: String) -> Result<Stri
     let _ = app_handle.emit("update-progress", serde_json::json!({
         "status": "installing", "progress": 100, "message": "已提交系统安装",
     }));
-            Ok("安装程序已启动".to_string())
+    Ok("安装程序已启动".to_string())
 }
 
 fn generate_id() -> String {
@@ -4690,6 +4690,8 @@ fn main() {
             get_auto_launch,
             set_auto_launch,
             close_app,
+            download_update,
+            install_update,
             start_server,
             stop_server,
             wake_server,
