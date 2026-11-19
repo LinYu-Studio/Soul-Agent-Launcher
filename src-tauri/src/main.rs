@@ -28,6 +28,11 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// 创建隐藏 CMD 窗口的子进程
 fn new_hidden_cmd(program: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(program);
+    // 强制 Python 子进程用 UTF-8 写 stdio（中文 Windows 默认 GBK，
+    // tqdm/日志的 Unicode 字符会在此处乱码且前端无法挽回）。
+    // 非 Python 程序会忽略这两个环境变量，无副作用。
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    cmd.env("PYTHONUTF8", "1");
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd

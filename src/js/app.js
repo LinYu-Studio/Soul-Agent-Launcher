@@ -3012,6 +3012,14 @@ function showDownloadOverlay(modelId) {
                 } else if (typeof data.progress === 'number' && data.progress > 0) {
                     if (_dlShownPct === null || data.progress >= _dlShownPct) _dlShownPct = data.progress;
                     renderDownloadProgress(_dlShownPct, '正在下载...');
+                } else if (data.message && String(data.message).indexOf('\uFFFD') < 0) {
+                    // UTF-8 环境修复后的非进度信息行（如"正在下载 xxx"），净化 ANSI 码后照常显示
+                    var clean = String(data.message)
+                        .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+                        .replace(/\[A/g, '')
+                        .replace(/[\r\n]+/g, ' ')
+                        .trim();
+                    if (clean) renderDownloadProgress(_dlShownPct === null ? 0 : _dlShownPct, clean);
                 }
                 return;
             }
