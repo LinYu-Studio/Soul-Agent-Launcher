@@ -71,6 +71,11 @@ def login_required(f):
 # API — 客户端更新检查
 # ============================================================
 
+@app.route('/')
+def index():
+    """本服务是更新服务器（无首页），根路径跳转到管理后台"""
+    return redirect(url_for('admin_login'))
+
 @app.route('/api/check-update', methods=['GET'])
 def api_check_update():
     current_version = request.args.get('current_version', '0.0.0')

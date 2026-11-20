@@ -1,0 +1,122 @@
+/* ============================================================
+   Soul Agent Launcher 官网样式（仓库内 fallback 版）
+   生产服务器若另有正式版 style.css，部署时直接覆盖本文件即可
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --accent: #4f8cff;
+    --accent-2: #60cdff;
+    --bg-dark: #0f172a;
+    --bg-card: #ffffff;
+    --text-main: #1f2937;
+    --text-sub: #4b5563;
+    --border: #e5e7eb;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--text-main);
+    background: #f1f5f9;
+    line-height: 1.6;
+}
+
+a { text-decoration: none; color: inherit; }
+img { max-width: 100%; }
+
+/* ---------- Header ---------- */
+.header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+}
+.nav-container {
+    max-width: 1140px; margin: 0 auto; padding: 14px 20px;
+    display: flex; align-items: center; gap: 24px;
+}
+.nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+.nav-links { display: flex; list-style: none; gap: 22px; margin-left: auto; font-size: 14px; }
+.nav-links a:hover { color: var(--accent); }
+.download-btn {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff !important; padding: 8px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+}
+.download-btn:hover { opacity: 0.9; }
+
+/* ---------- Hero ---------- */
+.hero { text-align: center; padding: 72px 20px 48px; }
+.version-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(79,140,255,0.1); color: var(--accent);
+    border: 1px solid rgba(79,140,255,0.35);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600;
+}
+.hero h1 { font-size: 44px; line-height: 1.25; margin: 18px 0 14px; }
+.subtitle { font-size: 16px; color: var(--text-sub); max-width: 640px; margin: 0 auto; }
+.hero-highlight {
+    max-width: 720px; margin: 18px auto 0; font-size: 14px;
+    background: #fff; border: 1px dashed rgba(79,140,255,0.5);
+    border-radius: 10px; padding: 12px 18px; color: var(--text-sub);
+}
+.hero-buttons { margin-top: 26px; display: flex; gap: 14px; justify-content: center; }
+.btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 24px; border-radius: 10px; font-size: 15px; font-weight: 600;
+    border: 1px solid var(--border); background: #fff; cursor: pointer; transition: 0.2s;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border: none; }
+
+/* ---------- 区块通用 ---------- */
+.section-container { max-width: 1140px; margin: 0 auto; padding: 48px 20px; }
+.section-header { text-align: center; margin-bottom: 36px; }
+.section-header h2 { font-size: 30px; margin-bottom: 8px; }
+.section-header p { color: var(--text-sub); font-size: 15px; }
+
+/* ---------- 功能网格 ---------- */
+.features-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;
+}
+.feature-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px 26px; transition: 0.2s;
+}
+.feature-card:hover { transform: translateY(-4px); box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
+.feature-icon {
+    width: 44px; height: 44px; border-radius: 10px; margin-bottom: 14px;
+    background: rgba(79,140,255,0.12); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+}
+.feature-icon svg { width: 22px; height: 22px; }
+.feature-card h3 { font-size: 17px; margin-bottom: 10px; }
+.feature-card ul { list-style: none; }
+.feature-card li { font-size: 13px; color: var(--text-sub); padding: 4px 0 4px 16px; position: relative; }
+.feature-card li::before { content: "›"; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+
+/* ---------- 下载区 ---------- */
+.backend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 26px; }
+.backend-card {
+    background: var(--bg-card); border: 2px solid var(--border); border-radius: 14px;
+    padding: 22px; text-align: center; cursor: pointer; position: relative; transition: 0.2s;
+}
+.backend-card:hover { border-color: var(--accent); }
+.backend-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,140,255,0.15); }
+.backend-card.disabled { opacity: 0.5; cursor: not-allowed; }
+.backend-card h4 { font-size: 16px; margin: 10px 0 6px; }
+.backend-card p { font-size: 12px; color: var(--text-sub); }
+.recommend-badge {
+    position: absolute; top: -10px; right: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff; font-size: 11px; padding: 3px 10px; border-radius: 999px;
+}
+.download-cta { text-align: center; }
+
+/* ---------- 页脚 ---------- */
+.site-footer {
+    border-top: 1px solid var(--border); padding: 26px 20px; text-align: center;
+    color: #999; font-size: 12px; background: #fff;
+}

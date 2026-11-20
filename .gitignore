@@ -24,3 +24,5 @@ WebSite/config.json
 # ===== 系统杂项 =====
 Thumbs.db
 Desktop.ini
+__pycache__/
+*.pyc

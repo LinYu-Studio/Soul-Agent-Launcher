@@ -1,7 +1,17 @@
-from flask import Flask, render_template, redirect, send_from_directory
+from flask import Flask, render_template, render_template_string, redirect, send_from_directory
 import urllib.request, json, os
 
-app = Flask(__name__)
+# landing 在 WebSite/landing/ 下，但模板与静态资源统一放在 WebSite/ 上一级
+_BASE = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__,
+            template_folder=os.path.join(_BASE, '..', 'templates'),
+            static_folder=os.path.join(_BASE, '..', 'static'))
+
+
+def _read_page(name):
+    """读取 landing/ 下的页面源文件（index.html / download.html 与本文件同目录）"""
+    with open(os.path.join(_BASE, name), encoding='utf-8') as f:
+        return f.read()
 
 def get_api_base():
     """获取 API 基础地址：环境变量 > 本地检测 > 同域"""
@@ -44,7 +54,8 @@ def get_latest_version():
 @app.route('/index.html')
 def index():
     info = get_latest_version()
-    return render_template('index.html', version_info=info)
+    # 页面源文件在 landing/ 下而非 templates/，用 render_template_string 直接渲染
+    return render_template_string(_read_page('index.html'), version_info=info)
 
 @app.route('/downloads/<path:filename>')
 def proxy_download(filename):
@@ -78,7 +89,7 @@ def download_latest():
 def download_page():
     """下载引导页面：自动触发下载，并提供手动下载链接"""
     info = get_latest_version()
-    return render_template('download.html',
+    return render_template_string(_read_page('download.html'),
         version=info.get('latest_version', '0.3.2'),
         download_url=info.get('download_url', '/download/latest'))
 
