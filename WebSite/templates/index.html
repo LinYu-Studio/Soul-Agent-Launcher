@@ -48,7 +48,7 @@
             支持多种后端加速，一键启动，无需复杂配置。
         </p>
         <p class="hero-highlight animate-fade-in animate-delay-4-5">
-            Soul Agent Launcher——本地模型「秒启」神器，空载仅135MB。自动匹配硬件，一键下载/部署GGUF，毫秒级唤醒。内置极简对话，支持流式+多模态。GPL v3，拒绝闭源收费！
+            Soul Agent Launcher——本地模型「秒启」神器，空载仅10MB。自动匹配硬件，一键下载/部署GGUF，毫秒级唤醒。内置极简对话，支持流式+多模态。GPL v3，拒绝闭源收费！
         </p>
         <div class="hero-buttons animate-fade-in animate-delay-5">
             <a href="#download" class="btn btn-primary">
@@ -85,7 +85,7 @@
                     </div>
                     <h3>性能与极致轻量</h3>
                     <ul>
-                        <li>空载内存仅 135MB（纯 GUI 前端）</li>
+                        <li>空载内存仅 14MB（纯 GUI 前端）</li>
                         <li>安装包超小：在线安装器仅 5MB</li>
                         <li>毫秒级启动：应用冷启动 < 0.5 秒</li>
                         <li>CUDA 后端加载 4B 模型仅需 1-3 秒</li>
@@ -118,24 +118,6 @@
                     </ul>
                 </div>
 
-                <!-- 智能待机与自动化 -->
-                <div class="feature-card scroll-animate">
-                    <div class="feature-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"/>
-                            <polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                    </div>
-                    <h3>智能待机与自动化 <span class="recommend-badge" style="font-size:10px;">v0.4.2</span></h3>
-                    <ul>
-                        <li>智能待机：平时零进程零显存，请求命中自动唤醒（双端点）</li>
-                        <li>崩溃自动恢复：进程意外退出自动重启，无需人工干预</li>
-                        <li>应用内完整更新：下载 + SHA256 校验 + 静默安装一条龙</li>
-                        <li>开机自启（托盘模式）+ 自动恢复上次运行的模型</li>
-                        <li>空闲自动待机、显存预警、全局搜索、一键环境修复</li>
-                    </ul>
-                </div>
-
                 <!-- 多模型管理 -->
                 <div class="feature-card scroll-animate">
                     <div class="feature-icon">
@@ -148,9 +130,27 @@
                     <h3>多模型常驻管理</h3>
                     <ul>
                         <li>同时运行多个模型实例，进程隔离</li>
-                        <li>常驻/待机模式：模型永驻显存或自动唤醒</li>
+                        <li>常驻/待机模式：待机零显存，请求命中自动唤醒</li>
                         <li>一键卸载模型：支持单个、批量、全部卸载</li>
                         <li>显存/内存实时监控：实时显示资源占用</li>
+                    </ul>
+                </div>
+
+                <!-- 智能待机与全自动运维 -->
+                <div class="feature-card scroll-animate">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                    </div>
+                    <h3>智能待机与全自动运维 <span class="recommend-badge">v0.4.2</span></h3>
+                    <ul>
+                        <li>智能待机：平时零进程零显存，请求命中自动唤醒（双端点统一）</li>
+                        <li>崩溃自动恢复：进程意外退出自动重启，无需人工干预</li>
+                        <li>应用内完整更新：下载 + SHA256 校验 + 静默安装一条龙</li>
+                        <li>开机自启（托盘模式）+ 自动恢复上次运行的模型</li>
+                        <li>空闲自动待机、显存预警、全局搜索、一键环境修复</li>
                     </ul>
                 </div>
 
@@ -290,15 +290,15 @@
                             <tr>
                                 <th>工具</th>
                                 <th>空载内存</th>
-                                <th>启动 7B 模型</th>
+                                <th>启动 4B 模型</th>
                                 <th>安装包大小</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
                                 <td><strong>SAL</strong></td>
-                                <td>135 MB</td>
-                                <td>3-10 秒</td>
+                                <td>14 MB</td>
+                                <td>3 秒</td>
                                 <td>5 MB / 458 MB</td>
                             </tr>
                             <tr>
@@ -315,13 +315,12 @@
                             </tr>
                             <tr>
                                 <td>Ollama</td>
-                                <td>200 MB</td>
-                                <td>15-30 秒</td>
+                                <td>不定</td>
+                                <td>需额外下载</td>
                                 <td>~1.4 GB</td>
                             </tr>
                         </tbody>
                     </table>
-                    <p style="font-size:13px;margin-top:16px;text-align:center;line-height:1.5;background:linear-gradient(135deg,#4FC3F7,#1565C0);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">以上数据基于公开测试，测试环境：Windows 11 24H2, i7-12700H, RTX 5060 Laptop, 模型 Qwen2.5-7B-Q4_K_M。不同环境结果可能略有差异</p>
                 </div>
             </div>
         </div>
@@ -391,7 +390,7 @@
                 </div>
             </div>
             <div class="download-buttons scroll-animate">
-                <a href="/download-page" class="btn btn-primary">
+                <a href="/download/latest" class="btn btn-primary">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                         <polyline points="7 10 12 15 17 10"/>

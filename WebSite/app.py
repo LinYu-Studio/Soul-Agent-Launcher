@@ -1,17 +1,7 @@
-from flask import Flask, render_template, render_template_string, redirect, send_from_directory
+from flask import Flask, render_template, redirect
 import urllib.request, json, os
 
-# landing 在 WebSite/landing/ 下，但模板与静态资源统一放在 WebSite/ 上一级
-_BASE = os.path.dirname(os.path.abspath(__file__))
-app = Flask(__name__,
-            template_folder=os.path.join(_BASE, '..', 'templates'),
-            static_folder=os.path.join(_BASE, '..', 'static'))
-
-
-def _read_page(name):
-    """读取 landing/ 下的页面源文件（index.html / download.html 与本文件同目录）"""
-    with open(os.path.join(_BASE, name), encoding='utf-8') as f:
-        return f.read()
+app = Flask(__name__)
 
 def get_api_base():
     """获取 API 基础地址：环境变量 > 本地检测 > 同域"""
@@ -45,7 +35,6 @@ def get_latest_version():
     return {
         'latest_version': '0.3.2',
         'download_url': '/downloads/Soul Agent Launcher_0.3.2_x64_en-US.msi',
-        'sha256': '',
         'release_notes': '',
         'release_date': ''
     }
@@ -54,8 +43,7 @@ def get_latest_version():
 @app.route('/index.html')
 def index():
     info = get_latest_version()
-    # 页面源文件在 landing/ 下而非 templates/，用 render_template_string 直接渲染
-    return render_template_string(_read_page('index.html'), version_info=info)
+    return render_template('index.html', version_info=info)
 
 @app.route('/downloads/<path:filename>')
 def proxy_download(filename):
@@ -80,26 +68,12 @@ def download_latest():
     info = get_latest_version()
     url = info.get('download_url', '')
     if url:
+        # 同域（nginx 代理）→ 相对路径
+        # 非同域（本地开发）→ 用 API_BASE 补全
         if url.startswith('/') and not is_same_origin():
             return redirect(API_BASE + url)
         return redirect(url)
     return '暂无可用安装包', 404
-
-@app.route('/download-page')
-def download_page():
-    """下载引导页面：自动触发下载，并提供手动下载链接"""
-    info = get_latest_version()
-    return render_template_string(_read_page('download.html'),
-        version=info.get('latest_version', '0.3.2'),
-        download_url=info.get('download_url', '/download/latest'))
-
-@app.route('/BingSiteAuth.xml')
-def bing_verify():
-    return send_from_directory('static', 'BingSiteAuth.xml', mimetype='text/xml')
-
-@app.route('/sitemap.xml')
-def sitemap():
-    return send_from_directory('static', 'sitemap.xml', mimetype='application/xml')
 
 @app.route('/tutorial')
 @app.route('/tutorial.html')
@@ -107,4 +81,4 @@ def tutorial():
     return render_template('tutorial.html')
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=7892)
+    app.run(debug=True, host='0.0.0.0', port=5000)
