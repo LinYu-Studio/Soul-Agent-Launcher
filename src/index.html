@@ -14,7 +14,7 @@
             <div class="boot-splash-title">Soul Agent Launcher</div>
             <div class="boot-splash-version" id="bootSplashVersion"></div>
             <div class="boot-splash-bar"><div class="boot-splash-fill" id="bootSplashFill"></div></div>
-            <div class="boot-splash-status" id="bootSplashStatus" role="status">正在启动…</div>
+            <div class="boot-splash-status" id="bootSplashStatus" role="status" data-i18n="boot.starting">正在启动…</div>
         </div>
     </div>
     <div class="mica" aria-hidden="true"></div>
@@ -118,7 +118,7 @@
                             <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
                         </svg>
                     </div>
-                    <div class="mode-card-title">我是开发者</div>
+                    <div class="mode-card-title" data-i18n="mode.dev">我是开发者</div>
                     <div class="mode-card-desc">无需本地部署AI教学，自由探索SAL</div>
                 </div>
                 <div class="mode-card" id="modeNewbie" onclick="selectMode('newbie')">
@@ -127,7 +127,7 @@
                             <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
                         </svg>
                     </div>
-                    <div class="mode-card-title">我是新手</div>
+                    <div class="mode-card-title" data-i18n="mode.newbie">我是新手</div>
                     <div class="mode-card-desc">无AI部署经验，最少3步快速部署本地AI</div>
                 </div>
             </div>
@@ -145,7 +145,7 @@
             <!-- 扫描阶段 -->
             <div id="deployScanPhase">
                 <div class="deploy-header">
-                    <h2>一键自动部署</h2>
+                    <h2 data-i18n="home.deploy">一键自动部署</h2>
                     <p>正在扫描您的硬件以匹配最佳模型</p>
                 </div>
                 <div class="scan-ring-container" id="deployScanContainer">
@@ -258,7 +258,7 @@
                                     <circle cx="6" cy="18" r="1" fill="currentColor"/>
                                 </svg>
                             </span>
-                            <span class="card-title">服务状态</span>
+                            <span class="card-title" data-i18n="home.status">服务状态</span>
                         </div>
                         <div class="card-body" style="text-align:center;padding:24px 0;">
                             <div class="status-dot" id="homeStatusDot">●</div>
@@ -282,7 +282,7 @@
                                     <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                                 </svg>
                             </span>
-                            <span class="card-title">一键自动部署</span>
+                            <span class="card-title" data-i18n="home.deploy">一键自动部署</span>
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--accent);">●</div>
@@ -301,7 +301,7 @@
                                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10" style="fill:none;"/>
                                 </svg>
                             </span>
-                            <span class="card-title">AI性能跑分</span>
+                            <span class="card-title" data-i18n="home.bench">AI性能跑分</span>
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--text-tertiary);">●</div>
@@ -318,7 +318,7 @@
                     <div class="card">
                         <div class="card-header">
                             <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-bulb"/></svg></span>
-                            <span class="card-title">使用说明</span>
+                            <span class="card-title" data-i18n="home.guide">使用说明</span>
                         </div>
                         <div class="quick-guide">
                             <div class="guide-step">
@@ -351,7 +351,7 @@
                                     <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
                                 </svg>
                             </span>
-                            <span class="card-title">使用教程</span>
+                            <span class="card-title" data-i18n="home.tutorial">使用教程</span>
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--accent);">●</div>
@@ -447,7 +447,7 @@
                 <div class="card" style="margin-bottom:16px;">
                     <div class="card-header">
                         <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
-                        <span class="card-title">选择模型</span>
+                        <span class="card-title" data-i18n="home.select_model">选择模型</span>
                     </div>
                     <div class="card-body">
                         <div class="form-group">
@@ -505,7 +505,7 @@
                 <div class="card" style="margin-bottom:16px;">
                     <div class="card-header">
                         <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-bulb"/></svg></span>
-                        <span class="card-title">快速指引</span>
+                        <span class="card-title" data-i18n="home.quick_guide">快速指引</span>
                     </div>
                     <div class="quick-guide">
                         <div class="guide-step">
@@ -849,44 +849,65 @@
                 </div>
 
                 <div class="settings-section">
-                    <h3 class="section-title">环境修复</h3>
-                    <div class="form-hint" style="margin-bottom:10px;">组件异常时一键重装（Python/pip/ModelScope 是模型下载的依赖，加速端按硬件自动匹配）</div>
+                    <h3 class="section-title" data-i18n="env.title">环境修复</h3>
+                    <div class="form-hint" data-i18n="env.repair_hint" style="margin-bottom:10px;">组件异常时一键重装（Python/pip/ModelScope 是模型下载的依赖，加速端按硬件自动匹配）</div>
                     <div style="display:flex;flex-direction:column;gap:8px;">
                         <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
                             <span id="envDot-python" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
                             <div style="flex:1;">
-                                <div style="font-size:13px;">Python 运行时</div>
-                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-python">未检测</div>
+                                <div style="font-size:13px;" data-i18n="env.python">Python 运行时</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-python"><span data-i18n="env.not_checked">未检测</span></div>
                             </div>
-                            <button class="btn btn-sm" id="envBtn-python" onclick="checkEnvComponent('python')">检测</button>
+                            <button class="btn btn-sm" id="envBtn-python" onclick="checkEnvComponent('python')" data-i18n="env.check">检测</button>
                         </div>
                         <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
                             <span id="envDot-pip" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
                             <div style="flex:1;">
-                                <div style="font-size:13px;">pip 包管理器</div>
-                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-pip">未检测</div>
+                                <div style="font-size:13px;" data-i18n="env.pip">pip 包管理器</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-pip"><span data-i18n="env.not_checked">未检测</span></div>
                             </div>
-                            <button class="btn btn-sm" id="envBtn-pip" onclick="checkEnvComponent('pip')">检测</button>
+                            <button class="btn btn-sm" id="envBtn-pip" onclick="checkEnvComponent('pip')" data-i18n="env.check">检测</button>
                         </div>
                         <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
                             <span id="envDot-mscope" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
                             <div style="flex:1;">
-                                <div style="font-size:13px;">ModelScope 下载工具</div>
-                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-mscope">未检测</div>
+                                <div style="font-size:13px;" data-i18n="env.mscope">ModelScope 下载工具</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-mscope"><span data-i18n="env.not_checked">未检测</span></div>
                             </div>
-                            <button class="btn btn-sm" id="envBtn-mscope" onclick="checkEnvComponent('mscope')">检测</button>
+                            <button class="btn btn-sm" id="envBtn-mscope" onclick="checkEnvComponent('mscope')" data-i18n="env.check">检测</button>
                         </div>
                         <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:6px;">
                             <span id="envDot-backend" style="width:10px;height:10px;border-radius:50%;background:#888;flex-shrink:0;"></span>
                             <div style="flex:1;">
-                                <div style="font-size:13px;">llama.cpp 加速端</div>
-                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-backend">未检测</div>
+                                <div style="font-size:13px;" data-i18n="env.backend">llama.cpp 加速端</div>
+                                <div style="font-size:11px;color:var(--text-tertiary);" id="envMsg-backend"><span data-i18n="env.not_checked">未检测</span></div>
                             </div>
-                            <button class="btn btn-sm" id="envBtn-backend" onclick="checkEnvComponent('backend')">检测</button>
+                            <button class="btn btn-sm" id="envBtn-backend" onclick="checkEnvComponent('backend')" data-i18n="env.check">检测</button>
                         </div>
                     </div>
                     <div class="card-actions" style="margin-top:10px;">
-                        <button class="btn" onclick="runEnvCheck()">全部重新检测</button>
+                        <button class="btn" onclick="runEnvCheck()" data-i18n="env.check_all">全部重新检测</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title" data-i18n="integrity.title">模型完整性校验</h3>
+                    <div class="form-hint" data-i18n="integrity.hint" style="margin-bottom:10px;">下载完成的模型会自动记录 SHA256。启动模型时自动比对体积；此处可粘贴路径做全量哈希校验。</div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" id="integrityPath" class="form-input" data-i18n-placeholder="integrity.path_hint" placeholder="粘贴 GGUF 模型文件完整路径" style="flex:1;">
+                        <button class="btn btn-accent" id="integrityBtn" onclick="verifyModelIntegrity()" data-i18n="integrity.check_btn">校验</button>
+                    </div>
+                    <div id="integrityResult" class="form-hint" style="margin-top:8px;white-space:pre-wrap;"></div>
+                </div>
+
+                <div class="settings-section">
+                    <h3 class="section-title" data-i18n="feedback.title">反馈与支持</h3>
+                    <div class="form-hint" data-i18n="feedback.hint" style="margin-bottom:10px;">遇到问题或有建议？欢迎通过以下渠道反馈，或导出诊断报告一键提交。</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="btn" onclick="copyQQGroup()" data-i18n="feedback.copy_qq">复制 QQ 群号</button>
+                        <button class="btn" onclick="openGithubIssues()" data-i18n="feedback.github">GitHub Issues</button>
+                        <button class="btn" onclick="openFeedback()" data-i18n="feedback.anon">匿名反馈</button>
+                        <button class="btn" onclick="copyDiagReport()" data-i18n="feedback.diag">复制诊断报告</button>
                     </div>
                 </div>
 

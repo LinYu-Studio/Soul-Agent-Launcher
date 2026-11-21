@@ -135,16 +135,16 @@ window.skipUpdate = function(version) {
 // ============================================================
 
 const SETUP_STEPS = {
-    LANG:      { id: 'lang',      label: '语言检测',   desc: '检测系统语言环境', critical: false, skippable: false },
-    THEME:     { id: 'theme',     label: '主题加载',   desc: '加载用户主题偏好', critical: false, skippable: false },
-    CONFIG:    { id: 'config',    label: '配置恢复',   desc: '从配置文件恢复设置', critical: true,  skippable: false },
-    BACKEND:   { id: 'backend',   label: '硬件检测 + 后端同步', desc: '检测 GPU/CPU 并自动匹配加速端', critical: true, skippable: false },
-    LLAMA_VER: { id: 'llama',     label: '版本校验',   desc: '校验 llama.cpp 版本一致性', critical: false, skippable: true },
-    PYTHON:    { id: 'python',    label: 'Python 检测', desc: '检测 Python 是否已安装', critical: false, skippable: true },
-    PIP:       { id: 'pip',       label: 'pip 检测',   desc: '检测 pip 包管理器', critical: false, skippable: true },
-    MODEL_SCOPE:{id: 'mscope',    label: 'ModelScope', desc: '安装模型下载工具', critical: false, skippable: true },
-    SETTINGS:  { id: 'settings',  label: '加载设置',   desc: '加载应用设置', critical: false, skippable: false },
-    UPDATE:    { id: 'update',    label: '版本检查',   desc: '检查新版本更新', critical: false, skippable: true },
+    LANG:      { id: 'lang',      labelKey: 'setup.step.lang',      descKey: 'setup.step.lang_desc',    critical: false, skippable: false },
+    THEME:     { id: 'theme',     labelKey: 'setup.step.theme',     descKey: 'setup.step.theme_desc',   critical: false, skippable: false },
+    CONFIG:    { id: 'config',    labelKey: 'setup.step.config',    descKey: 'setup.step.config_desc',  critical: true,  skippable: false },
+    BACKEND:   { id: 'backend',   labelKey: 'setup.step.backend',   descKey: 'setup.step.backend_desc', critical: true,  skippable: false },
+    LLAMA_VER: { id: 'llama',     labelKey: 'setup.step.llama',     descKey: 'setup.step.llama_desc',   critical: false, skippable: true },
+    PYTHON:    { id: 'python',    labelKey: 'setup.step.python',    descKey: 'setup.step.python_desc',  critical: false, skippable: true },
+    PIP:       { id: 'pip',       labelKey: 'setup.step.pip',       descKey: 'setup.step.pip_desc',     critical: false, skippable: true },
+    MODEL_SCOPE:{id: 'mscope',    labelKey: 'setup.step.mscope',    descKey: 'setup.step.mscope_desc',  critical: false, skippable: true },
+    SETTINGS:  { id: 'settings',  labelKey: 'setup.step.settings',  descKey: 'setup.step.settings_desc', critical: false, skippable: false },
+    UPDATE:    { id: 'update',    labelKey: 'setup.step.update',    descKey: 'setup.step.update_desc',   critical: false, skippable: true },
 };
 
 var _setupState = {};       // stepId -> { status, error }
@@ -167,12 +167,20 @@ function renderSetupSteps() {
         <div class="setup-step" id="step-${s.id}">
             <div class="setup-step-icon pending" id="step-icon-${s.id}">○</div>
             <div>
-                <div class="setup-step-label">${s.label}</div>
-                <div class="setup-step-desc">${s.desc}</div>
+                <div class="setup-step-label">${_t(s.labelKey)}</div>
+                <div class="setup-step-desc">${_t(s.descKey)}</div>
             </div>
             <div class="setup-step-status" id="step-status-${s.id}"></div>
         </div>
     `).join('');
+    // 语言切换/重渲染后恢复已有步骤状态（label 已在 _setupState 中）
+    Object.values(SETUP_STEPS).forEach(s => {
+        var st = _setupState[s.id];
+        if (st && st.status && st.status !== 'pending') {
+            var icon = document.getElementById('step-icon-' + s.id);
+            if (icon) icon.className = 'setup-step-icon ' + st.status;
+        }
+    });
 }
 
 function updateStepUI(stepId, status, extra) {
@@ -182,7 +190,7 @@ function updateStepUI(stepId, status, extra) {
     icon.className = 'setup-step-icon ' + status;
     var icons = { pending: '○', running: '◌', success: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>', skipped: '—', error: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#E57373" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' };
     icon.innerHTML = icons[status] || '○';
-    var labels = { pending: '', running: '进行中…', success: '完成', skipped: '已跳过', error: '失败' };
+    var labels = { pending: '', running: _t('setup.status.running'), success: _t('setup.status.success'), skipped: _t('setup.status.skipped'), error: _t('setup.status.error') };
     statusEl.textContent = extra || labels[status] || '';
     statusEl.className = 'setup-step-status ' + status;
     _setupState[stepId].status = status;
@@ -297,6 +305,90 @@ window.openFeedback = function() {
     window.open('https://sal.bszx.site/', '_blank');
 };
 
+// ============================================================
+// 反馈闭环（Beta⑤）+ 模型完整性校验入口（设置页）
+// ============================================================
+
+// TODO: 发布 0.4.2 前填入真实 QQ 群号；留空时复制按钮会提示未配置
+const FEEDBACK_QQ_GROUP = '';
+const FEEDBACK_GITHUB_ISSUES = 'https://github.com/LinYu-Studio/Soul-Agent-Launcher/issues';
+
+window.copyQQGroup = function() {
+    if (!FEEDBACK_QQ_GROUP) {
+        alert(_t('feedback.qq_missing'));
+        return;
+    }
+    navigator.clipboard.writeText(FEEDBACK_QQ_GROUP);
+    showKbToast(_t('feedback.qq_copied'));
+};
+
+window.openGithubIssues = function() {
+    window.open(FEEDBACK_GITHUB_ISSUES, '_blank');
+};
+
+/// 组装诊断报告（版本/平台/配置/运行状态），供用户复制提交
+function buildDiagReport() {
+    var r = '=== Soul Agent Launcher 诊断报告 ===\n';
+    r += '版本: ' + APP_VERSION_LABEL + '\n';
+    r += '时间: ' + new Date().toLocaleString() + '\n';
+    try {
+        var ua = (navigator.userAgent || '').match(/(Windows NT [\d.]+)/);
+        r += '系统: ' + (ua ? ua[1] : '未知') + '\n';
+        r += '语言: ' + getCurrentLang() + '\n';
+    } catch (e) {}
+    var llama = localStorage.getItem('launcher-llama-path');
+    r += 'llama.cpp 路径: ' + (llama || '未配置') + '\n';
+    var models = (window._lastModels || []).map(function(m) { return m.name; }).join(', ');
+    r += '运行中模型: ' + (models || '无') + '\n';
+    r += '日志目录: %APPDATA%\\SoulLogs\n';
+    return r;
+}
+
+window.copyDiagReport = function() {
+    var report = buildDiagReport();
+    navigator.clipboard.writeText(report).then(function() {
+        showKbToast(_t('feedback.diag_copied'));
+    }).catch(function() {
+        prompt(_t('feedback.diag_copied'), report);
+    });
+};
+
+/// 全量校验模型文件（当前 SHA256 vs 下载记录）
+window.verifyModelIntegrity = async function() {
+    var input = document.getElementById('integrityPath');
+    var out = document.getElementById('integrityResult');
+    var btn = document.getElementById('integrityBtn');
+    var path = input ? input.value.trim() : '';
+    if (!out) return;
+    if (!path) {
+        out.textContent = _t('integrity.path_hint');
+        return;
+    }
+    if (btn) btn.disabled = true;
+    out.textContent = _t('integrity.checking');
+    try {
+        var res = await window.__TAURI__.core.invoke('verify_model_hash', { path: path });
+        var sizeStr = ((res.size || 0) / 1048576).toFixed(1) + 'MB';
+        if (!res.has_record) {
+            out.textContent = _t('integrity.no_record', { size: sizeStr }) + '\nSHA256: ' + res.current_sha256;
+        } else if (res.hash_match === true && res.size_match === true) {
+            out.textContent = '✅ ' + _t('integrity.ok', { size: sizeStr }) +
+                '\nSHA256: ' + res.current_sha256 +
+                '\n' + _t('integrity.recorded_at', { time: res.recorded_at || '-' });
+        } else {
+            var why = [];
+            if (res.size_match === false) why.push(_t('integrity.size_mismatch'));
+            if (res.hash_match === false) why.push(_t('integrity.hash_mismatch'));
+            out.textContent = '⚠️ ' + _t('integrity.fail') + ' ' + why.join('；') +
+                '\nSHA256: ' + res.current_sha256;
+        }
+    } catch (e) {
+        out.textContent = '⚠️ ' + e;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+};
+
 window.closeApp = function() {
     if (window.__TAURI__?.core?.invoke) {
         window.__TAURI__.core.invoke('close_app').catch(function(){});
@@ -405,7 +497,7 @@ async function restoreLastModels() {
     }
     if (restored > 0) {
         debugLog('已恢复 ' + restored + ' 个模型');
-        showKbToast('已自动恢复上次运行的 ' + restored + ' 个模型');
+        showKbToast(_t('restore.done', { count: restored }));
     }
 }
 
@@ -421,7 +513,7 @@ function bootProgress(pct, text) {
 function hideBootSplash() {
     var splash = document.getElementById('bootSplash');
     if (!splash) return;
-    bootProgress(100, '启动完成');
+    bootProgress(100, _t('boot.done'));
     splash.classList.add('boot-done');
     setTimeout(function() { splash.remove(); }, 500);
 }
@@ -430,7 +522,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     debugLog('DOMContentLoaded 开始');
 
     // 启动画面：欢迎框在全部初始化完成后才弹出（避免点击选项框时窗口卡顿）
-    bootProgress(4, '正在初始化…');
+    bootProgress(4, _t('boot.init'));
 
     // 侧边栏版本号（唯一来源 APP_VERSION；只替换首个文本节点，保留跑分徽章）
     var verEl = document.getElementById('sidebarVersion');
@@ -451,14 +543,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         initLanguage();
         debugLog('语言检测完成');
     });
-    bootProgress(14, '正在加载语言…');
+    bootProgress(14, _t('boot.lang'));
 
     // === 步骤 2: 主题 ===
     await runStep('theme', async () => {
         initTheme();
         debugLog('主题加载完成');
     });
-    bootProgress(22, '正在应用主题…');
+    bootProgress(22, _t('boot.theme'));
 
     // === 步骤 3: 配置恢复 ===
     await runStep('config', async () => {
@@ -473,57 +565,57 @@ document.addEventListener('DOMContentLoaded', async () => {
             // 首次运行，无配置文件，正常
         }
     });
-    bootProgress(30, '正在恢复配置…');
+    bootProgress(30, _t('boot.config'));
 
     // === 步骤 4: 硬件检测 + 后端同步 ===
-    bootProgress(34, '正在检测硬件与加速后端…');
+    bootProgress(34, _t('boot.backend'));
     await runStep('backend', async () => {
         await checkAndRunSetup();
     });
 
     // === 步骤 5: llama.cpp 版本校验 ===
-    bootProgress(55, '正在校验 llama.cpp 版本…');
+    bootProgress(55, _t('boot.llama'));
     await runStep('llama', async () => {
         await checkLlamaVersion();
     });
 
     // === 步骤 6: Python 检测 ===
-    bootProgress(65, '正在检测 Python…');
+    bootProgress(65, _t('boot.python'));
     await runStep('python', async () => {
         var installed = await window.__TAURI__.core.invoke('check_python_installed');
         if (!installed) {
-            updateStepUI('python', 'running', '未安装，正在安装…');
+            updateStepUI('python', 'running', _t('setup.status.installing'));
             await window.__TAURI__.core.invoke('install_python');
         }
     });
 
     // === 步骤 7: pip 检测 ===
-    bootProgress(75, '正在检测 pip…');
+    bootProgress(75, _t('boot.pip'));
     await runStep('pip', async () => {
         var installed = await window.__TAURI__.core.invoke('check_pip_installed');
         if (!installed) {
-            updateStepUI('pip', 'running', '未安装，正在安装…');
+            updateStepUI('pip', 'running', _t('setup.status.installing'));
             await window.__TAURI__.core.invoke('install_pip');
         }
     });
 
     // === 步骤 8: ModelScope 检测 ===
-    bootProgress(82, '正在检查 ModelScope…');
+    bootProgress(82, _t('boot.mscope'));
     await runStep('mscope', async () => {
         await checkAndInstallModelscope();
     });
 
     hideSetupOverlay();
-    bootProgress(90, '正在加载界面…');
+    bootProgress(90, _t('boot.ui'));
     debugLog('所有环境检测完成');
 
     loadSettings();
     initNavigation();
     initLaunchPage();
-    bootProgress(93, '正在恢复上次运行的模型…');
+    bootProgress(93, _t('boot.restore'));
     // 在轮询持久化之前读取上次状态并恢复（读操作是同步的，无竞态）
     await restoreLastModels();
-    bootProgress(97, '正在启动状态轮询…');
+    bootProgress(97, _t('boot.poll'));
     startStatusPolling();
 
     // 延迟 5 秒检查更新
@@ -637,6 +729,12 @@ async function listenServerOutput() {
         await window.__TAURI__.event.listen('model-wake', (event) => {
             const p = event.payload || {};
             addConsoleLine('info', `⚡ 模型 ${p.name} 唤醒中，加载完成即可服务`);
+        });
+        // 模型完整性告警：启动时体积与下载记录不符（不拦截，仅提示）
+        await window.__TAURI__.event.listen('model-integrity-warning', (event) => {
+            const p = event.payload || {};
+            showKbToast('⚠️ ' + (p.message || '模型文件完整性异常'));
+            addConsoleLine('warn', `⚠️ 完整性告警: ${p.path || ''} — ${p.message || ''}`);
         });
     } catch (e) {
         console.warn('崩溃恢复事件监听失败:', e);

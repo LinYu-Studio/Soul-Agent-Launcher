@@ -582,6 +582,17 @@ fn start_model(
         }
     }
 
+    // 完整性快速复核：与下载记录比体积（不一致仅告警不拦截，用户可能手动替换了文件）
+    if let Some(warn) = quick_integrity_check(&model_path) {
+        soul_log_detail("WARN", "integrity", "模型体积与下载记录不符", &warn);
+        if let Some(handle) = APP_HANDLE.get() {
+            let _ = handle.emit("model-integrity-warning", serde_json::json!({
+                "path": model_path,
+                "message": warn,
+            }));
+        }
+    }
+
     let child = spawn_model_process(&llama_path, &model_path, llama_port, ctx, mmproj_clean.as_deref())
         .map_err(|e| {
             soul_log_detail("ERROR", "model", "start_model 启动失败", &e);
@@ -3427,6 +3438,8 @@ async fn start_model_download(
                     }
                     let hash = hex::encode(hasher.finalize());
                     hashes.push(format!("{}: SHA256={}", fname, hash));
+                    // 记录到本地 manifest（启动时体积复核、设置页可全量校验的基准）
+                    record_model_hash(gf, &hash, fsize);
                     soul_log("INFO", "download", &format!("SHA256({}) = {}", fname, hash));
                 }
                 Err(e) => {
@@ -4503,41 +4516,103 @@ fn download_update(app_handle: tauri::AppHandle, url: String) -> Result<String, 
 }
 
 fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
+    // 断点续传：进度写到 .part 文件，重试时带 Range 头从已收字节继续；
+    // 服务器不支持 Range（返回 200 而非 206）时自动退回整段重下
     let dest = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi");
-    let mut resp = reqwest::blocking::Client::new()
-        .get(url)
-        .timeout(std::time::Duration::from_secs(1800))
-        .send()
-        .map_err(|e| format!("连接更新服务器失败: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("更新服务器返回 {}", resp.status()));
-    }
-    let total = resp.content_length().unwrap_or(0);
-    let mut file = std::fs::File::create(&dest).map_err(|e| format!("创建临时文件失败: {}", e))?;
-    let mut received: u64 = 0;
-    let mut last_pct = 100u32; // 首个字节必触发一次 0% 事件
-    let mut buffer = [0u8; 65536];
+    let part = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi.part");
+    let max_retries = 3u32;
+    let mut attempts: u32 = 0;
+
     loop {
-        let n = resp.read(&mut buffer).map_err(|e| format!("下载中断: {}", e))?;
-        if n == 0 { break; }
-        file.write_all(&buffer[..n]).map_err(|e| format!("写入失败: {}", e))?;
-        received += n as u64;
-        if total > 0 {
-            let pct = ((received as f64 / total as f64) * 100.0) as u32;
-            if pct != last_pct {
-                last_pct = pct;
-                let _ = app.emit("update-progress", serde_json::json!({
-                    "status": "downloading", "progress": pct,
-                    "message": format!("已下载 {:.1}MB / {:.1}MB", received as f64 / 1048576.0, total as f64 / 1048576.0),
-                }));
+        attempts += 1;
+        let existing = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+
+        let mut req = reqwest::blocking::Client::new()
+            .get(url)
+            .timeout(std::time::Duration::from_secs(1800));
+        if existing > 0 {
+            req = req.header("Range", format!("bytes={}-", existing));
+        }
+        let mut resp = match req.send() {
+            Ok(r) => r,
+            Err(e) => {
+                soul_log_detail("WARN", "update", &format!("更新下载连接失败（第 {}/{} 次尝试）", attempts, max_retries + 1), &e.to_string());
+                if attempts <= max_retries {
+                    let _ = app.emit("update-progress", serde_json::json!({
+                        "status": "downloading", "progress": 0,
+                        "message": format!("连接失败，正在重试（{}/{}）...", attempts, max_retries),
+                    }));
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                }
+                return Err(format!("连接更新服务器失败: {}", e));
+            }
+        };
+        if !resp.status().is_success() {
+            // 清掉坏的 .part（如 416 Range 越界），重试
+            let _ = std::fs::remove_file(&part);
+            if attempts <= max_retries {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                continue;
+            }
+            return Err(format!("更新服务器返回 {}", resp.status()));
+        }
+
+        // 206 = 续传成功；200 = 服务器不支持 Range，从头写
+        let resume = resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+        let base: u64 = if resume { existing } else { 0 };
+        let total: u64 = if resume {
+            base + resp.content_length().unwrap_or(0)
+        } else {
+            resp.content_length().unwrap_or(0)
+        };
+        soul_log("INFO", "update", &format!("更新下载 status={} base={} total={}", resp.status(), base, total));
+
+        let mut file = if resume {
+            std::fs::OpenOptions::new().append(true).open(&part)
+        } else {
+            std::fs::File::create(&part)
+        }.map_err(|e| format!("创建临时文件失败: {}", e))?;
+
+        let mut received: u64 = base;
+        let mut last_pct = 100u32; // 首个字节必触发一次进度事件
+        let mut buffer = [0u8; 65536];
+        loop {
+            let n = resp.read(&mut buffer).map_err(|e| format!("下载中断: {}", e))?;
+            if n == 0 { break; }
+            file.write_all(&buffer[..n]).map_err(|e| format!("写入失败: {}", e))?;
+            received += n as u64;
+            if total > 0 {
+                let pct = ((received as f64 / total as f64) * 100.0) as u32;
+                if pct != last_pct {
+                    last_pct = pct;
+                    let _ = app.emit("update-progress", serde_json::json!({
+                        "status": "downloading", "progress": pct,
+                        "message": format!("已下载 {:.1}MB / {:.1}MB{}", received as f64 / 1048576.0, total as f64 / 1048576.0,
+                            if resume { "（断点续传）" } else { "" }),
+                    }));
+                }
             }
         }
+        file.flush().ok();
+        if total > 0 && received != total {
+            // 不完整：保留 .part 供下次续传
+            if attempts <= max_retries {
+                let _ = app.emit("update-progress", serde_json::json!({
+                    "status": "downloading", "progress": ((received as f64 / total as f64) * 100.0) as u32,
+                    "message": format!("下载不完整（{:.1}/{:.1}MB），自动续传重试（{}/{}）...",
+                        received as f64 / 1048576.0, total as f64 / 1048576.0, attempts, max_retries),
+                }));
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                continue;
+            }
+            return Err(format!("下载不完整（{}/{} 字节），已保留进度，请重试", received, total));
+        }
+
+        // 完成：.part → 最终文件
+        std::fs::rename(&part, &dest).map_err(|e| format!("移动下载文件失败: {}", e))?;
+        return Ok(dest.to_string_lossy().to_string());
     }
-    file.flush().ok();
-    if total > 0 && received != total {
-        return Err(format!("下载不完整（{}/{} 字节），请重试", received, total));
-    }
-    Ok(dest.to_string_lossy().to_string())
 }
 
 /// 计算文件 SHA256（用于更新包完整性校验）
@@ -4551,6 +4626,65 @@ fn sha256_file(path: &std::path::Path) -> Result<String, String> {
         hasher.update(&buf[..n]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+// ============================================================
+// 模型完整性 manifest：下载时记录 SHA256/体积，启动时体积复核
+// （ModelScope 不下发 hash，本地首验记录是唯一的比对基准）
+// ============================================================
+
+fn model_hashes_path() -> PathBuf {
+    get_launcher_dir().join("model-hashes.json")
+}
+
+/// 读取 manifest（路径 → {sha256, size, verified_at}），损坏时返回空表
+fn load_model_hashes() -> serde_json::Map<String, serde_json::Value> {
+    std::fs::read_to_string(model_hashes_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("records").and_then(|r| r.as_object()).cloned())
+        .unwrap_or_default()
+}
+
+/// 写回 manifest
+fn save_model_hashes(records: serde_json::Map<String, serde_json::Value>) {
+    let dir = get_launcher_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let doc = serde_json::json!({ "version": 1, "records": records });
+    let tmp = model_hashes_path().with_extension("json.tmp");
+    if std::fs::write(&tmp, serde_json::to_vec_pretty(&doc).unwrap_or_default()).is_ok() {
+        let _ = std::fs::rename(&tmp, model_hashes_path());
+    }
+}
+
+/// 下载校验通过后记录单文件 hash
+fn record_model_hash(path: &std::path::Path, sha256: &str, size: u64) {
+    let key = path.to_string_lossy().to_string();
+    let mut records = load_model_hashes();
+    records.insert(key, serde_json::json!({
+        "sha256": sha256,
+        "size": size,
+        "verified_at": now_iso(),
+    }));
+    save_model_hashes(records);
+    soul_log("INFO", "integrity", &format!("已记录模型 hash: {}", path.display()));
+}
+
+/// 启动模型前的快速完整性复核（只比体积，不重算 hash）
+/// 返回 Some(警告文本) 表示与下载记录不一致
+fn quick_integrity_check(model_path: &str) -> Option<String> {
+    let records = load_model_hashes();
+    let rec = records.get(model_path)?;
+    let expected = rec.get("size").and_then(|s| s.as_u64())?;
+    let actual = std::fs::metadata(model_path).map(|m| m.len()).ok()?;
+    if expected != actual {
+        Some(format!(
+            "模型文件体积与下载记录不符（记录 {:.1}MB，当前 {:.1}MB），文件可能已损坏或被替换",
+            expected as f64 / 1048576.0, actual as f64 / 1048576.0
+        ))
+    } else {
+        None
+    }
 }
 
 /// 安装更新：生成提权批处理（杀进程 → msiexec 静默安装 → 重启新版），
@@ -4720,6 +4854,41 @@ fn check_vram_free() -> VramStatus {
 #[tauri::command]
 fn get_file_size_mb(path: String) -> u64 {
     std::fs::metadata(&path).map(|m| m.len() / (1024 * 1024)).unwrap_or(0)
+}
+
+/// 全量校验模型文件完整性：当前 SHA256/体积 vs 下载时记录（大文件计算耗时，走阻塞线程池）
+#[tauri::command]
+async fn verify_model_hash(path: String) -> Result<serde_json::Value, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+    let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let record = load_model_hashes().get(&path).cloned();
+    let current = tauri::async_runtime::spawn_blocking(move || sha256_file(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| format!("校验任务失败: {}", e))?
+        .map_err(|e| format!("计算 SHA256 失败: {}", e))?;
+
+    let recorded_sha = record.as_ref()
+        .and_then(|r| r.get("sha256")).and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let recorded_size = record.as_ref()
+        .and_then(|r| r.get("size")).and_then(|v| v.as_u64());
+    let recorded_at = record.as_ref()
+        .and_then(|r| r.get("verified_at")).and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(serde_json::json!({
+        "size": size,
+        "current_sha256": current,
+        "has_record": record.is_some(),
+        "recorded_sha256": recorded_sha,
+        "recorded_size": recorded_size,
+        "recorded_at": recorded_at,
+        "hash_match": recorded_sha.as_ref().map(|h| h.eq_ignore_ascii_case(&current)),
+        "size_match": recorded_size.map(|s| s == size),
+    }))
 }
 
 fn generate_id() -> String {
@@ -5131,6 +5300,7 @@ fn main() {
             search_sessions,
             check_vram_free,
             get_file_size_mb,
+            verify_model_hash,
             sleep_model,
             wake_model,
             set_standby_idle_min,
