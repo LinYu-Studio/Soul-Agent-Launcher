@@ -345,7 +345,8 @@ pub fn embed_all_chunks(state: &KnowledgeState) -> Result<(usize, Vec<String>), 
 
 /// 检索知识库（支持嵌入向量检索和 BM25 回退）
 pub fn search_knowledge(state: &KnowledgeState, query: &str, top_k: usize) -> Vec<serde_json::Value> {
-    let chunks = state.chunks.lock().unwrap();
+    // 中毒锁也继续（into_inner 拿回 guard），与 main.rs 代理层/manifest 用法一致
+    let chunks = state.chunks.lock().unwrap_or_else(|e| e.into_inner());
 
     // 尝试使用嵌入检索
     let has_embedding = chunks.iter().any(|c| c.embedding.is_some());

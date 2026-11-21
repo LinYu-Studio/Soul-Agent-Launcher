@@ -107,7 +107,7 @@ impl SoulLogger {
 
     fn today_str() -> String {
         // 日志文件名按 UTC+8 本地日期滚动（凌晨 0 点切文件，而非 UTC 早上 8 点）
-        let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         let (y, m, d) = local_date_parts(secs);
         format!("{:04}-{:02}-{:02}", y, m, d)
     }
@@ -193,7 +193,7 @@ impl SoulLogger {
     /// 写一条日志（同时写 TXT 和 JSON）
     fn write_entry(&mut self, level: &str, category: &str, message: &str, detail: Option<&str>) {
         self.roll_if_needed();
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
         let secs = now.as_secs();
         let ms = now.subsec_millis();
         let (h, m, s) = local_hms(secs);
@@ -226,7 +226,7 @@ impl SoulLogger {
     /// 写一条资源日志
     fn write_resource(&mut self, snapshot: &ResourceSnapshot) {
         self.roll_if_needed();
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
         let secs = now.as_secs();
         let ms = now.subsec_millis();
         let (h, m, s) = local_hms(secs);
@@ -261,7 +261,7 @@ impl SoulLogger {
     fn write_raw(&mut self, text: &str) {
         self.roll_if_needed();
         let ts = {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
             let secs = now.as_secs();
             let ms = now.subsec_millis();
             let (h, m, s) = local_hms(secs);
@@ -1950,8 +1950,9 @@ fn save_install_info(
         "ctx": 4096,
         "backend": backend,
     });
-    std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap())
-        .map_err(|e| format!("保存配置失败: {}", e))?;
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    atomic_write(&config_path, &content).map_err(|e| format!("保存配置失败: {}", e))?;
 
     Ok(())
 }
@@ -2490,7 +2491,7 @@ fn save_config(config: LauncherConfig) -> Result<(), String> {
     let config_path = launcher_dir.join("config.json");
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("序列化配置失败: {}", e))?;
-    std::fs::write(&config_path, content)
+    atomic_write(&config_path, &content)
         .map_err(|e| format!("写入配置失败: {}", e))?;
     Ok(())
 }
@@ -4333,6 +4334,12 @@ fn forward_openai_response(upstream: &mut std::net::TcpStream, client: &mut std:
             Ok(n) => {
                 line_buf.extend_from_slice(&chunk[..n]);
                 idle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                // 畸形流防护：长时间无换行导致缓冲超限 → 丢弃防内存膨胀（正常 SSE 每事件必带 \n）
+                const MAX_LINE_BUF: usize = 8 * 1024 * 1024;
+                if line_buf.len() > MAX_LINE_BUF {
+                    soul_log("WARN", "proxy", "上游流式数据超 8MB 无换行，丢弃畸形缓冲");
+                    line_buf.clear();
+                }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(2));
@@ -4516,12 +4523,19 @@ fn download_update(app_handle: tauri::AppHandle, url: String) -> Result<String, 
 }
 
 fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String, String> {
-    // 断点续传：进度写到 .part 文件，重试时带 Range 头从已收字节继续；
-    // 服务器不支持 Range（返回 200 而非 206）时自动退回整段重下
+    // 断点续传：进度写到 .part 文件，重试时带 Range + If-Range 头从已收字节继续；
+    // If-Range 让支持标准的服务器在文件已更换时返回 200（整段重下）；
+    // 不支持 If-Range 的服务器手动比对 ETag/Last-Modified sidecar，不一致也丢弃 .part 重下。
+    // 服务器不支持 Range（返回 200 而非 206）时自动退回整段重下。
     let dest = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi");
     let part = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi.part");
+    let etag_path = std::env::temp_dir().join("Soul-Agent-Launcher-update.msi.part.etag");
     let max_retries = 3u32;
     let mut attempts: u32 = 0;
+    // 上次下载会话记录的文件校验器（ETag 优先，其次 Last-Modified）
+    let saved_validator = std::fs::read_to_string(&etag_path).ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     loop {
         attempts += 1;
@@ -4532,6 +4546,9 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
             .timeout(std::time::Duration::from_secs(1800));
         if existing > 0 {
             req = req.header("Range", format!("bytes={}-", existing));
+            if let Some(ref v) = saved_validator {
+                req = req.header("If-Range", v.clone());
+            }
         }
         let mut resp = match req.send() {
             Ok(r) => r,
@@ -4551,6 +4568,7 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
         if !resp.status().is_success() {
             // 清掉坏的 .part（如 416 Range 越界），重试
             let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(&etag_path);
             if attempts <= max_retries {
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 continue;
@@ -4558,15 +4576,42 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
             return Err(format!("更新服务器返回 {}", resp.status()));
         }
 
-        // 206 = 续传成功；200 = 服务器不支持 Range，从头写
-        let resume = resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+        let current_validator: Option<String> = {
+            let h = resp.headers();
+            h.get("etag").or_else(|| h.get("last-modified"))
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        };
+
+        // 206 = 续传成功；200 = 服务器不支持 Range（或 If-Range 检测到文件已更换），从头写
+        let mut resume = resp.status() == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+        if resume {
+            // 双保险：忽略 If-Range 的服务器仍会返回 206——手动比对校验器
+            if let (Some(saved), Some(cur)) = (&saved_validator, &current_validator) {
+                if saved != cur {
+                    soul_log_detail("WARN", "update", "服务器文件已更换（ETag/Last-Modified 不一致），丢弃续传进度整段重下",
+                        &format!("saved={} current={}", saved, cur));
+                    let _ = std::fs::remove_file(&part);
+                    let _ = std::fs::remove_file(&etag_path);
+                    resume = false;
+                }
+            }
+        }
+        if !resume {
+            // 全新下载：记录本次文件的校验器供后续续传比对
+            match &current_validator {
+                Some(v) => { let _ = std::fs::write(&etag_path, v); }
+                None => { let _ = std::fs::remove_file(&etag_path); }
+            }
+        }
         let base: u64 = if resume { existing } else { 0 };
         let total: u64 = if resume {
             base + resp.content_length().unwrap_or(0)
         } else {
             resp.content_length().unwrap_or(0)
         };
-        soul_log("INFO", "update", &format!("更新下载 status={} base={} total={}", resp.status(), base, total));
+        soul_log("INFO", "update", &format!("更新下载 status={} base={} total={} validator={:?}", resp.status(), base, total, current_validator));
 
         let mut file = if resume {
             std::fs::OpenOptions::new().append(true).open(&part)
@@ -4596,7 +4641,7 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
         }
         file.flush().ok();
         if total > 0 && received != total {
-            // 不完整：保留 .part 供下次续传
+            // 不完整：保留 .part + 校验器供下次续传
             if attempts <= max_retries {
                 let _ = app.emit("update-progress", serde_json::json!({
                     "status": "downloading", "progress": ((received as f64 / total as f64) * 100.0) as u32,
@@ -4609,8 +4654,9 @@ fn download_update_blocking(app: &tauri::AppHandle, url: &str) -> Result<String,
             return Err(format!("下载不完整（{}/{} 字节），已保留进度，请重试", received, total));
         }
 
-        // 完成：.part → 最终文件
+        // 完成：.part → 最终文件，清理校验器 sidecar
         std::fs::rename(&part, &dest).map_err(|e| format!("移动下载文件失败: {}", e))?;
+        let _ = std::fs::remove_file(&etag_path);
         return Ok(dest.to_string_lossy().to_string());
     }
 }
@@ -4637,7 +4683,11 @@ fn model_hashes_path() -> PathBuf {
     get_launcher_dir().join("model-hashes.json")
 }
 
+/// manifest 读改写互斥锁：两个下载同时完成时防止 load-modify-save 互相覆盖丢记录
+static MODEL_HASHES_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// 读取 manifest（路径 → {sha256, size, verified_at}），损坏时返回空表
+/// 注意：与 record_model_hash 的读改写配套，单独调用无锁（只读原子文件是安全的）
 fn load_model_hashes() -> serde_json::Map<String, serde_json::Value> {
     std::fs::read_to_string(model_hashes_path())
         .ok()
@@ -4657,9 +4707,19 @@ fn save_model_hashes(records: serde_json::Map<String, serde_json::Value>) {
     }
 }
 
-/// 下载校验通过后记录单文件 hash
+/// 原子写文件：先写同目录临时文件再 rename，进程中途退出不会留下半截内容
+fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, content).map_err(|e| format!("写入临时文件失败: {}", e))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("替换文件失败: {}", e))?;
+    Ok(())
+}
+
+/// 下载校验通过后记录单文件 hash（持全局锁串行化读改写）
 fn record_model_hash(path: &std::path::Path, sha256: &str, size: u64) {
     let key = path.to_string_lossy().to_string();
+    // 中毒锁也继续（into_inner 拿回 guard），与代理层用法一致
+    let _guard = MODEL_HASHES_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut records = load_model_hashes();
     records.insert(key, serde_json::json!({
         "sha256": sha256,
@@ -5188,9 +5248,15 @@ fn main() {
             let monitor_handle = app.handle().clone();
             start_crash_monitor(monitor_handle);
 
-            let _tray = TrayIconBuilder::new()
-                .icon(tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))
-                    .expect("加载托盘图标失败"))
+            // 托盘图标解码失败时跳过图标设置、保留菜单功能，不再 panic 裸崩
+            let tray_builder = match tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")) {
+                Ok(icon) => TrayIconBuilder::new().icon(icon),
+                Err(e) => {
+                    soul_log_detail("WARN", "main", "托盘图标解码失败，使用默认图标", &e.to_string());
+                    TrayIconBuilder::new()
+                }
+            };
+            let _tray = tray_builder
                 .menu(&menu)
                 .tooltip("Soul Agent Launcher")
                 .on_menu_event(|app, event| {
@@ -5367,5 +5433,9 @@ fn main() {
             knowledge::kb_read_file,
         ])
         .run(tauri::generate_context!())
-        .expect("启动失败");
+        .unwrap_or_else(|e| {
+            // 框架级启动失败（如 WebView 创建失败）：记录错误并以非零码退出，不弹 panic
+            eprintln!("[SAL] 启动失败: {}", e);
+            std::process::exit(1);
+        });
 }

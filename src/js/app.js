@@ -2188,13 +2188,20 @@ function calcBenchScore(speedNormal, speedThink) {
 }
 
 function saveBenchResult(data) {
-    var history = JSON.parse(localStorage.getItem('sal-bench-history') || '[]');
+    var history = loadBenchHistory();
     history.unshift(data);
     if (history.length > 50) history.length = 50;
     localStorage.setItem('sal-bench-history', JSON.stringify(history));
 }
 
-function loadBenchHistory() { return JSON.parse(localStorage.getItem('sal-bench-history') || '[]'); }
+function loadBenchHistory() {
+    try {
+        var v = JSON.parse(localStorage.getItem('sal-bench-history') || '[]');
+        return Array.isArray(v) ? v : [];
+    } catch (e) {
+        return []; // 数据损坏（写一半/被改）时静默重置，避免抛异常
+    }
+}
 
 function showBenchHistory() {
     var history = loadBenchHistory();
