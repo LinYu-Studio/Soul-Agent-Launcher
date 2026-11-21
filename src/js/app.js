@@ -1051,6 +1051,7 @@ async function pollServerStatus() {
         // 检查多模型中是否有任一在运行
         var models = await window.__TAURI__.core.invoke('list_running_models');
         var running = models && models.length > 0;
+        window._serverRunning = !!running; // 供 isLiteServerRunning 等查询真实状态，不依赖 UI 文字
         var modelNames = running ? models.map(function(m) { return m.name; }).join(', ') : '';
         var totalVram = running ? models.reduce(function(sum, m) { return sum + (m.vram_mb || 0); }, 0) : 0;
 
@@ -3984,6 +3985,9 @@ function cleanResponseText(text) {
 }
 
 function isLiteServerRunning() {
+    // 优先用 pollServerStatus 从后端查到的真实状态（i18n 下徽章文字不可靠）
+    if (window._serverRunning !== undefined) return !!window._serverRunning;
+    // 兜底：状态轮询尚未跑过一次时按徽章文字判断
     const badge = document.getElementById('serverStatusBadge');
     return badge && badge.textContent.includes('已连接');
 }

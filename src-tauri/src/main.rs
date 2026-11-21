@@ -106,29 +106,10 @@ impl SoulLogger {
     }
 
     fn today_str() -> String {
-        let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let secs = t.as_secs();
-        let days = secs / 86400;
-        let _rem = secs % 86400;
-        // 1970-01-01 was Thursday, adjusted for UTC+8
-        let mut y = 1970u64;
-        let mut d = days;
-        loop {
-            let year_days = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
-            if d < year_days { break; }
-            d -= year_days;
-            y += 1;
-        }
-        let months_days = [31,28,31,30,31,30,31,31,30,31,30,31];
-        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-        let mut m = 0;
-        while m < 12 {
-            let md = if m == 1 && leap { 29 } else { months_days[m] };
-            if d < md as u64 { break; }
-            d -= md as u64;
-            m += 1;
-        }
-        format!("{:04}-{:02}-{:02}", y, m + 1, d + 1)
+        // 日志文件名按 UTC+8 本地日期滚动（凌晨 0 点切文件，而非 UTC 早上 8 点）
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let (y, m, d) = local_date_parts(secs);
+        format!("{:04}-{:02}-{:02}", y, m, d)
     }
 
     fn open_files(dir: &PathBuf, today: &str) -> (Option<std::io::BufWriter<std::fs::File>>, Option<std::io::BufWriter<std::fs::File>>) {
@@ -215,9 +196,7 @@ impl SoulLogger {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let secs = now.as_secs();
         let ms = now.subsec_millis();
-        let h = (secs % 86400) / 3600;
-        let m = (secs % 3600) / 60;
-        let s = secs % 60;
+        let (h, m, s) = local_hms(secs);
         let ts = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
 
         let mut txt_line = format!("[{}][{}][{}] {}", ts, level, category, message);
@@ -250,9 +229,7 @@ impl SoulLogger {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let secs = now.as_secs();
         let ms = now.subsec_millis();
-        let h = (secs % 86400) / 3600;
-        let m = (secs % 3600) / 60;
-        let s = secs % 60;
+        let (h, m, s) = local_hms(secs);
         let ts = format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms);
 
         let txt_line = format!(
@@ -287,9 +264,7 @@ impl SoulLogger {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
             let secs = now.as_secs();
             let ms = now.subsec_millis();
-            let h = (secs % 86400) / 3600;
-            let m = (secs % 3600) / 60;
-            let s = secs % 60;
+            let (h, m, s) = local_hms(secs);
             format!("{:02}:{:02}:{:02}.{:03}", h, m, s, ms)
         };
         if let Some(ref mut w) = self.txt_writer {
@@ -434,19 +409,45 @@ struct SleepMonitor {
     entries: Mutex<Vec<SleepLogEntry>>,
 }
 
+/// Unix 天数 → 公历 (年, 月, 日)：逐轮回退法，正确处理闰年与各月天数
+fn days_to_ymd(days: u64) -> (u64, u32, u32) {
+    let mut y = 1970u64;
+    let mut d = days;
+    loop {
+        let year_days = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+        if d < year_days { break; }
+        d -= year_days;
+        y += 1;
+    }
+    let months_days = [31u64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mut m = 0usize;
+    while m < 12 {
+        let md = if m == 1 && leap { 29 } else { months_days[m] };
+        if d < md { break; }
+        d -= md;
+        m += 1;
+    }
+    (y, (m + 1) as u32, (d + 1) as u32)
+}
+
+/// Unix 秒 → UTC+8 本地日期 (年, 月, 日)
+/// SAL 面向国内用户，统一固定 UTC+8（不引入 chrono，保持零依赖）
+fn local_date_parts(secs: u64) -> (u64, u32, u32) {
+    days_to_ymd((secs + 8 * 3600) / 86400)
+}
+
+/// Unix 秒 → UTC+8 本地 (时, 分, 秒)
+fn local_hms(secs: u64) -> (u32, u32, u32) {
+    let rem = (secs + 8 * 3600) % 86400;
+    ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32)
+}
+
 fn now_iso() -> String {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    // 简单格式化：秒级时间戳转 YYYY-MM-DD HH:MM:SS
-    let s = secs as i64 + 8 * 3600; // UTC+8
-    let h = (s / 3600) % 24;
-    let m = (s / 60) % 60;
-    let sec = s % 60;
-    let d = s / 86400;
-    // 粗略计算日期
-    let year = 1970 + (d as f64 / 365.25) as i64;
-    let month = 1 + ((d % 365) / 30) as i64;
-    let day = 1 + ((d % 365) % 30) as i64;
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month.min(12).max(1), day.min(31).max(1), h, m, sec)
+    let (y, mo, d) = local_date_parts(secs);
+    let (h, m, s) = local_hms(secs);
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, mo, d, h, m, s)
 }
 
 fn log_sleep_event(monitor: &State<SleepMonitor>, action: &str, duration_ms: Option<u64>, detail: Option<String>) {
@@ -3611,11 +3612,9 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-/// 格式化时间戳为 HH:MM:SS
+/// 格式化时间戳为 HH:MM:SS（UTC+8 本地时间）
 fn format_ts(secs: u64) -> String {
-    let h = (secs / 3600) % 24;
-    let m = (secs / 60) % 60;
-    let s = secs % 60;
+    let (h, m, s) = local_hms(secs);
     format!("{:02}:{:02}:{:02}", h, m, s)
 }
 
@@ -3811,8 +3810,11 @@ fn convert_chat_to_native(
 fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _own_port: u16, own_llama_port: u16) {
     soul_log("DEBUG", "proxy", &format!("handle_proxy_connection model='{}'", model_name));
     // 1. 读请求头（到 \r\n\r\n）
+    //    30 秒收不满即放弃：客户端连上不发数据的连接不释放会导致线程永久堆积（线程泄漏根源）
+    //    WouldBlock 需重试而非断开（Windows 上 accept 的连接会继承监听 socket 的非阻塞模式）
     let mut buf = Vec::new();
     let mut header_end = None;
+    let header_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let mut byte = [0u8; 1];
         match client.read(&mut byte) {
@@ -3824,6 +3826,13 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
                     header_end = Some(len);
                     break;
                 }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= header_deadline {
+                    soul_log("DEBUG", "proxy", "请求头 30 秒未收齐，断开（防泄漏）");
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
             }
             Err(_) => break,
         }
@@ -3899,7 +3908,13 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
         if remaining > 0 {
             let mut body_buf = vec![0u8; remaining];
             let mut total = 0;
+            // 请求体同样限时收齐，防止半截 body 的僵尸连接占用线程
+            let body_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             while total < remaining {
+                if std::time::Instant::now() >= body_deadline {
+                    soul_log("DEBUG", "proxy", "请求体 30 秒未收齐，放弃");
+                    break;
+                }
                 match client.read(&mut body_buf[total..]) {
                     Ok(0) => break,
                     Ok(n) => total += n,
@@ -4060,240 +4075,310 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
     }
 }
 
+/// 从上游增量读取 HTTP 响应头（到 \r\n\r\n），已读字节暂存到 all
+/// 返回头部长度（含终止符）；EOF/超时/异常返回 None。自动跳过 100 Continue。
+fn read_upstream_headers(upstream: &mut std::net::TcpStream, all: &mut Vec<u8>) -> Option<usize> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(150);
+    let mut chunk = [0u8; 8192];
+    loop {
+        if let Some(pos) = all.windows(4).position(|w| w == b"\r\n\r\n") {
+            let end = pos + 4;
+            // 100 Continue 非最终响应：丢弃后继续找真正的响应头
+            let head = String::from_utf8_lossy(&all[..end.min(80)]);
+            if head.starts_with("HTTP/1.") && head.contains("100 Continue") {
+                all.drain(..end);
+                continue;
+            }
+            return Some(end);
+        }
+        if std::time::Instant::now() >= deadline { return None; }
+        match upstream.read(&mut chunk) {
+            Ok(0) => return None,
+            Ok(n) => all.extend_from_slice(&chunk[..n]),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            Err(_) => return None, // 含 TimedOut / ConnectionReset
+        }
+    }
+}
+
+/// 从响应头文本解析 Content-Length
+fn parse_content_length(header_str: &str) -> Option<usize> {
+    header_str.lines()
+        .find(|l| l.to_lowercase().starts_with("content-length:"))
+        .and_then(|l| l.split(':').nth(1))
+        .and_then(|s| s.trim().parse().ok())
+}
+
+/// 读完剩余 body 到 Content-Length 满 / EOF / 超时
+/// content_length 已知时读满即收尾，避免 keep-alive 连接空等超时（防线程滞留）
+fn read_upstream_body(upstream: &mut std::net::TcpStream, all: &mut Vec<u8>, body_start: usize, content_length: Option<usize>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let mut chunk = [0u8; 65536];
+    loop {
+        if let Some(cl) = content_length {
+            if all.len() >= body_start + cl { return; }
+        }
+        if std::time::Instant::now() >= deadline { return; }
+        match upstream.read(&mut chunk) {
+            Ok(0) => return,
+            Ok(n) => all.extend_from_slice(&chunk[..n]),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            Err(_) => return,
+        }
+    }
+}
+
+/// 向客户端写一条 SSE 事件；写失败 = 客户端已断开，返回 false 让上层立即结束线程（防泄漏）
+fn write_sse(client: &mut std::net::TcpStream, body: &serde_json::Value) -> bool {
+    let data = format!("data: {}\n\n", serde_json::to_string(body).unwrap_or_default());
+    client.write_all(data.as_bytes()).is_ok() && client.flush().is_ok()
+}
+
 /// 读取上游响应、转换为 OpenAI 格式、返回给客户端
 /// requested_stream: 客户端是否期望 SSE 流式响应
+/// 流式模式为真流式：上游每个 token 立即转为 OpenAI chunk 转发（不再攒完整回复后一次发 3 个 chunk）
 fn forward_openai_response(upstream: &mut std::net::TcpStream, client: &mut std::net::TcpStream, requested_stream: bool) {
     upstream.set_read_timeout(Some(std::time::Duration::from_secs(120))).ok();
     client.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
 
-    // 1. 读取整个上游响应（包括HTTP头）
-    // 流式模式下检测 [DONE] 后提前退出，避免等满 120 秒超时
-    let mut all = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        match upstream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(n) => {
-                all.extend_from_slice(&chunk[..n]);
-                // 流式模式：检测到 [DONE] 标记即退出
-                if requested_stream && all.windows(6).any(|w| w == b"[DONE]") {
-                    break;
-                }
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => { std::thread::sleep(std::time::Duration::from_millis(2)); continue; }
-            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-            Err(ref e) if e.raw_os_error() == Some(10054) || e.kind() == std::io::ErrorKind::ConnectionReset => break,
-            Err(_) => break,
+    // 1. 增量读取上游响应头
+    let mut all: Vec<u8> = Vec::new();
+    let hdr_end = match read_upstream_headers(upstream, &mut all) {
+        Some(p) => p,
+        None => {
+            eprintln!("[proxy] openai response empty");
+            let body_text = "{\"error\":\"empty upstream response\",\"message\":\"上游返回空响应\"}";
+            let resp = format!(
+                "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body_text.len(), body_text
+            );
+            let _ = client.write_all(resp.as_bytes());
+            let _ = client.flush();
+            return;
         }
-    }
-
-    if all.is_empty() {
-        eprintln!("[proxy] openai response empty");
-        let body_text = "{\"error\":\"empty upstream response\",\"message\":\"上游返回空响应\"}";
-        let resp = format!(
-            "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body_text.len(), body_text
-        );
-        let _ = client.write_all(resp.as_bytes());
-        let _ = client.flush();
-        return;
-    }
-
-    // 2. 解析HTTP响应：找 \r\n\r\n 或 \n\n 作为头部分界
-    // 流式模式下 SSE 数据含 \n\n，必须用 position（第一个）而非 rposition
-    fn find_header_end(data: &[u8], from_end: bool) -> usize {
-        let needle = b"\r\n\r\n";
-        if from_end {
-            data.windows(4).rposition(|w| w == needle).map(|p| p + 4)
-        } else {
-            data.windows(4).position(|w| w == needle).map(|p| p + 4)
-        }.unwrap_or_else(|| {
-            // 回退：查找 \n\n（部分极致版 llama-server 使用 POSIX 换行）
-            data.windows(2).position(|w| w == b"\n\n").map(|p| p + 2).unwrap_or(0)
-        })
-    }
-    let hdr_end = if requested_stream {
-        // 流式：position 找第一个
-        let first = find_header_end(&all, false);
-        if first > 0 {
-            let status_text = String::from_utf8_lossy(&all[..first.min(100)]);
-            if status_text.contains("100") {
-                // 跳过 100 Continue：在 first 之后找下一个
-                all[first..].windows(4).position(|w| w == b"\r\n\r\n")
-                    .or_else(|| all[first..].windows(2).position(|w| w == b"\n\n"))
-                    .map(|p| first + p + 2)
-                    .unwrap_or(first)
-            } else { first }
-        } else { 0 }
-    } else {
-        // 非流式：rposition 跳过 100 Continue
-        find_header_end(&all, true)
     };
-    let _header_str = String::from_utf8_lossy(&all[..hdr_end]);
-    let body = &all[hdr_end..];
-    eprintln!("[proxy] openai response ({} bytes header, {} bytes body)", hdr_end, body.len());
-    // 调试：上游响应为空时打印原始数据前 300 字节
-    if body.is_empty() {
-        eprintln!("[proxy] EMPTY BODY! raw first 300: {:?}", String::from_utf8_lossy(&all[..all.len().min(300)]));
-    }
+    let header_str = String::from_utf8_lossy(&all[..hdr_end]).to_string();
 
-    // 检查上游 HTTP 状态码 — 非 200 直接透传
-    let header_str = &String::from_utf8_lossy(&all[..hdr_end]);
+    // 2. 非 200：读完错误体直接透传（错误响应都很小）
     let first_line = header_str.lines().next().unwrap_or("");
     let status_code: u16 = first_line.split(' ').nth(1).unwrap_or("0").parse().unwrap_or(0);
     if status_code != 200 {
         eprintln!("[proxy] openai upstream status: {}, piping through", status_code);
+        read_upstream_body(upstream, &mut all, hdr_end, None);
         let _ = client.write_all(&all);
         let _ = client.flush();
         return;
     }
 
-    // === 流式模式 --- 累积所有 token 后一次性发送 ===
-    if requested_stream {
-        // 检查上游是否返回了空响应（模型未加载/待机）
-        if body.len() <= 2 {
-            eprintln!("[proxy] stream: upstream returned empty body (model not loaded?)");
-            let empty_body = "{\"error\":\"empty upstream response\",\"message\":\"模型未加载或已休眠，请检查服务状态\"}";
-            let resp = format!("HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", empty_body.len(), empty_body);
-            let _ = client.write_all(resp.as_bytes());
-            let _ = client.flush();
-            return;
-        }
-        // 检查 Content-Type 是否非 JSON/SSE（例如 text/html 说明请求有误）
-        let ct = header_str.lines().find(|l| l.to_lowercase().starts_with("content-type:")).unwrap_or("").to_lowercase();
-        if ct.contains("text/html") {
-            eprintln!("[proxy] stream: upstream returned text/html (wrong endpoint?)");
-            let err_body = format!("{{\"error\":\"wrong content type\",\"message\":\"上游返回了 text/html，请求可能未正确路由到 /completion\"}}");
-            let resp = format!("HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", err_body.len(), err_body);
-            let _ = client.write_all(resp.as_bytes());
-            let _ = client.flush();
-            return;
-        }
-        let body_str = String::from_utf8_lossy(body);
-        let chatcmpl_id = format!("chatcmpl-soul-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
-        let created = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    // 3. Content-Type 异常（text/html 说明请求未正确路由）
+    let ct = header_str.lines().find(|l| l.to_lowercase().starts_with("content-type:")).unwrap_or("").to_lowercase();
+    if ct.contains("text/html") {
+        eprintln!("[proxy] openai: upstream returned text/html (wrong endpoint?)");
+        let err_body = "{\"error\":\"wrong content type\",\"message\":\"上游返回了 text/html，请求可能未正确路由到 /completion\"}";
+        let resp = format!("HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", err_body.len(), err_body);
+        let _ = client.write_all(resp.as_bytes());
+        let _ = client.flush();
+        return;
+    }
 
-        // 解析上游 SSE，累积全部内容
-        let mut all_content = String::new();
-        let mut finished = false;
-        let mut prompt_tokens: u64 = 0;
-        let mut completion_tokens: u64 = 0;
-        for line in body_str.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() { continue; }
-            let json_str = if trimmed.starts_with("data: ") { trimmed[6..].trim() }
-                else if trimmed.starts_with("data:") { trimmed[5..].trim() }
-                else { trimmed };
-            if json_str == "[DONE]" { continue; }
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
-                let c = json["content"].as_str().unwrap_or("");
-                let s = json["stop"].as_bool().unwrap_or(false);
-                if !c.is_empty() { all_content.push_str(c); }
-                if s {
-                    finished = true;
-                    prompt_tokens = json["tokens_evaluated"].as_u64().unwrap_or(0);
-                    completion_tokens = json["tokens_predicted"].as_u64().unwrap_or(0);
+    let upstream_cl = parse_content_length(&header_str);
+
+    // === 非流式模式：读完整个 JSON 后转换为 OpenAI 格式 ===
+    if !requested_stream {
+        read_upstream_body(upstream, &mut all, hdr_end, upstream_cl);
+        let body = &all[hdr_end..];
+        if body.len() <= 2 {
+            eprintln!("[proxy] body too small");
+            let resp = "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n";
+            let _ = client.write_all(resp.as_bytes());
+            let _ = client.flush();
+            return;
+        }
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body) {
+            let content = json["content"].as_str().unwrap_or("");
+            let finish = if json["stop"].as_bool().unwrap_or(false) { "stop" } else { "length" };
+            let model = json["model"].as_str().unwrap_or("model");
+            let prompt_tokens = json["tokens_evaluated"].as_u64().unwrap_or(0);
+            let completion_tokens = json["tokens_predicted"].as_u64().unwrap_or(0);
+            let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
+            let openai = serde_json::json!({
+                "id": format!("chatcmpl-soul-{}", id),
+                "object": "chat.completion",
+                "created": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                "model": model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": finish}],
+                "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}
+            });
+            let final_body = serde_json::to_vec(&openai).unwrap_or_default();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                final_body.len()
+            );
+            let _ = client.write_all(resp.as_bytes());
+            let _ = client.write_all(&final_body);
+            let _ = client.flush();
+            return;
+        }
+
+        // JSON 解析失败（安全截取前 500 字符，避免多字节字符内切片 panic）
+        let body_str = String::from_utf8_lossy(body).to_string();
+        let preview: String = body_str.chars().take(500).collect();
+        eprintln!("[proxy] openai JSON parse failed, raw body (first 500 chars): {:?}", preview);
+        let resp = format!(
+            "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(), body_str
+        );
+        let _ = client.write_all(resp.as_bytes());
+        return;
+    }
+
+    // === 流式模式：真流式透传 ===
+    // 空响应探测：上游读完头即 EOF 且无 body → 模型未加载/已休眠（保持原 502 行为）
+    if all.len() == hdr_end {
+        upstream.set_read_timeout(Some(std::time::Duration::from_secs(2))).ok();
+        let mut probe = [0u8; 1024];
+        match upstream.read(&mut probe) {
+            Ok(0) => {
+                eprintln!("[proxy] stream: upstream returned empty body (model not loaded?)");
+                let empty_body = "{\"error\":\"empty upstream response\",\"message\":\"模型未加载或已休眠，请检查服务状态\"}";
+                let resp = format!("HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", empty_body.len(), empty_body);
+                let _ = client.write_all(resp.as_bytes());
+                let _ = client.flush();
+                return;
+            }
+            Ok(n) => all.extend_from_slice(&probe[..n]),
+            Err(_) => {} // 超时/暂时无数据 → 模型在推理（如长 prompt 预填充），按正常流继续
+        }
+        upstream.set_read_timeout(Some(std::time::Duration::from_secs(120))).ok();
+    }
+
+    let chatcmpl_id = format!("chatcmpl-soul-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+    let created = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+
+    // 发送 SSE 响应头（真流式无 Content-Length，靠连接关闭收尾）
+    let sse_hdr = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
+    if client.write_all(sse_hdr.as_bytes()).is_err() || client.flush().is_err() { return; }
+
+    // 角色 chunk（OpenAI 惯例：首个 delta 携带 role）
+    if !write_sse(client, &serde_json::json!({
+        "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
+        "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
+    })) { return; }
+
+    // 逐行解析上游 SSE，每个 token 立即转发；客户端断开（写失败）则关闭上游提前结束
+    let mut line_buf: Vec<u8> = Vec::new();
+    line_buf.extend_from_slice(&all[hdr_end..]);
+    let mut finished = false;
+    let mut prompt_tokens: u64 = 0;
+    let mut completion_tokens: u64 = 0;
+    let mut chunk = [0u8; 8192];
+    let mut idle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+
+    'outer: loop {
+        // 先处理缓冲区里的完整行
+        while let Some(nl) = line_buf.iter().position(|&b| b == b'\n') {
+            let line: Vec<u8> = line_buf.drain(..=nl).collect();
+            let mut s = String::from_utf8_lossy(&line[..line.len() - 1]).to_string();
+            if s.ends_with('\r') { s.pop(); }
+            let s = s.trim().to_string();
+            if s.is_empty() { continue; }
+            if s == "data: [DONE]" { break 'outer; }
+            let json_str = if let Some(r) = s.strip_prefix("data: ") { r }
+                else if let Some(r) = s.strip_prefix("data:") { r.trim() }
+                else { s.as_str() };
+            let json: serde_json::Value = match serde_json::from_str(json_str) { Ok(j) => j, Err(_) => continue };
+            let c = json["content"].as_str().unwrap_or("");
+            let stop = json["stop"].as_bool().unwrap_or(false);
+            if !c.is_empty() {
+                if !write_sse(client, &serde_json::json!({
+                    "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
+                    "choices": [{"index": 0, "delta": {"content": c}, "finish_reason": null}]
+                })) {
+                    // 客户端已断开：立即结束（关闭上游连接，llama-server 会取消生成）
+                    return;
                 }
             }
+            if stop {
+                finished = true;
+                prompt_tokens = json["tokens_evaluated"].as_u64().unwrap_or(0);
+                completion_tokens = json["tokens_predicted"].as_u64().unwrap_or(0);
+                if !write_sse(client, &serde_json::json!({
+                    "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}
+                })) { return; }
+                break; // stop 已收，补发 [DONE] 即可收尾
+            }
         }
-
-        // 发给客户端：角色 + 内容 + finish + [DONE]
-        let total_tokens = prompt_tokens + completion_tokens;
-        let mut sse_body = String::new();
-        sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&serde_json::json!({
-            "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": null}]
-        })).unwrap_or_default()));
-        sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&serde_json::json!({
-            "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
-            "choices": [{"index": 0, "delta": {"content": &all_content}, "finish_reason": null}]
-        })).unwrap_or_default()));
-        sse_body.push_str(&format!("data: {}\n\n", serde_json::to_string(&serde_json::json!({
-            "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": if finished { "stop" } else { "length" }}],
-            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
-        })).unwrap_or_default()));
-        sse_body.push_str("data: [DONE]\n\n");
-        let resp = format!(
-            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-            sse_body.len(), sse_body
-        );
-        if let Err(e) = client.write_all(resp.as_bytes()) {
-            eprintln!("[proxy] stream: write error: {}", e);
-            return;
+        if finished { break; }
+        match upstream.read(&mut chunk) {
+            Ok(0) => break, // 上游关闭
+            Ok(n) => {
+                line_buf.extend_from_slice(&chunk[..n]);
+                idle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            Err(_) => break, // TimedOut / ConnectionReset 等
         }
-        if let Err(e) = client.flush() {
-            eprintln!("[proxy] stream: flush error: {}", e);
-            return;
+        if std::time::Instant::now() >= idle_deadline {
+            soul_log("WARN", "proxy", "流式响应 180 秒无数据，提前收尾");
+            break;
         }
-        eprintln!("[proxy] openai stream done ({} chars)", all_content.len());
-        return;
     }
 
-    // === 非流式模式：上游返回单个 JSON ===
-    if body.len() <= 2 {
-        eprintln!("[proxy] body too small");
-        let resp = "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n";
-        let _ = client.write_all(resp.as_bytes());
-        let _ = client.flush();
-        return;
-    }
-
-    let body_str = String::from_utf8_lossy(body);
-    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body) {
-        let content = json["content"].as_str().unwrap_or("");
-        let finish = if json["stop"].as_bool().unwrap_or(false) { "stop" } else { "length" };
-        let model = json["model"].as_str().unwrap_or("model");
-        let prompt_tokens = json["tokens_evaluated"].as_u64().unwrap_or(0);
-        let completion_tokens = json["tokens_predicted"].as_u64().unwrap_or(0);
-        let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
-        let openai = serde_json::json!({
-            "id": format!("chatcmpl-soul-{}", id),
-            "object": "chat.completion",
-            "created": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
-            "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": finish}],
+    // 上游异常中断（未收到 stop）也补一个 finish chunk，客户端流才不会语义悬空
+    if !finished {
+        let _ = write_sse(client, &serde_json::json!({
+            "id": &chatcmpl_id, "object": "chat.completion.chunk", "created": created,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "length"}],
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}
-        });
-        let final_body = serde_json::to_vec(&openai).unwrap_or_default();
-        let resp = format!(
-            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            final_body.len()
-        );
-        let _ = client.write_all(resp.as_bytes());
-        let _ = client.write_all(&final_body);
-        let _ = client.flush();
-        return;
+        }));
     }
-
-    // JSON 解析失败
-    eprintln!("[proxy] openai JSON parse failed, raw body (first 500 chars): {:?}", &body_str[..body_str.len().min(500)]);
-    let resp = format!(
-        "HTTP/1.1 502 Bad Gateway\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(), body_str
-    );
-    let _ = client.write_all(resp.as_bytes());
+    let _ = client.write_all(b"data: [DONE]\n\n");
+    let _ = client.flush();
+    eprintln!("[proxy] openai stream done (finished={})", finished);
 }
 
 /// 纯管道传输（/chat、/health 等无需格式转换的端点）
+/// Content-Length 感知：body 读满即收尾，避免 keep-alive 连接空等超时（防线程滞留）；
+/// SSE 流式（无 CL）保持读到 EOF/超时的原始管道行为
 fn pipe_raw_response(upstream: &mut std::net::TcpStream, client: &mut std::net::TcpStream) {
-    upstream.set_read_timeout(Some(std::time::Duration::from_secs(60))).ok();
+    upstream.set_read_timeout(Some(std::time::Duration::from_secs(120))).ok();
     client.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
+
+    // 先读响应头（短超时容忍），把已读部分立即转发给客户端
+    let mut buf: Vec<u8> = Vec::new();
+    let hdr_end = read_upstream_headers(upstream, &mut buf);
+    if client.write_all(&buf).is_err() { return; }
+    let _ = client.flush();
+
+    let content_length = hdr_end
+        .and_then(|h| parse_content_length(&String::from_utf8_lossy(&buf[..h])));
+
     let mut pipe_buf = [0u8; 65536];
+    // Some(r) = 精确读完 r 字节即正常收尾；None = 读到 EOF/超时（SSE 流式或无 CL）
+    let mut remaining = content_length;
     loop {
+        if let Some(r) = remaining {
+            if r == 0 { return; }
+        }
         match upstream.read(&mut pipe_buf) {
-            Ok(0) => break,
+            Ok(0) => return,
             Ok(n) => {
-                if client.write_all(&pipe_buf[..n]).is_err() { break; }
+                if let Some(r) = remaining.as_mut() { *r = r.saturating_sub(n); }
+                if client.write_all(&pipe_buf[..n]).is_err() { return; }
                 let _ = client.flush();
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(2));
-                continue;
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => break,
-            Err(ref e) if e.raw_os_error() == Some(10054) || e.kind() == std::io::ErrorKind::ConnectionReset => break,
-            Err(_) => break,
+            Err(_) => return,
         }
     }
 }

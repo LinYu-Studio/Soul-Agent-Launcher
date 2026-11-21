@@ -55,10 +55,22 @@ fn parse_text_file(path: &Path) -> Result<String, String> {
     Ok(content)
 }
 
+/// 把字节索引向前吸附到字符边界（多字节字符内不panic）
+fn snap_fwd(text: &str, mut i: usize) -> usize {
+    while i < text.len() && !text.is_char_boundary(i) { i += 1; }
+    i
+}
+
+/// 把字节索引向后吸附到字符边界
+fn snap_back(text: &str, mut i: usize) -> usize {
+    while i > 0 && !text.is_char_boundary(i) { i -= 1; }
+    i
+}
+
 /// 分块：按段落 + 字符数切割
 fn chunk_text(text: &str, doc_id: &str, doc_path: &str, doc_name: &str, source: &str) -> Vec<DocumentChunk> {
-    let max_chunk = 800;  // 每块最多字符
-    let overlap = 100;     // 重叠字符
+    let max_chunk = 800;  // 每块最多字节（UTF-8）
+    let overlap = 100;     // 重叠字节
     let mut chunks = Vec::new();
 
     if text.len() <= max_chunk {
@@ -79,7 +91,12 @@ fn chunk_text(text: &str, doc_id: &str, doc_path: &str, doc_name: &str, source: 
     let mut start = 0;
     let mut idx = 0;
     while start < text.len() {
-        let end = (start + max_chunk).min(text.len());
+        // 尾端吸附到字符边界（中文 3 字节/字，+800 可能落在多字节中间）
+        let mut end = snap_back(text, (start + max_chunk).min(text.len()));
+        if end <= start {
+            // 兜底：单个字符超长（不可能发生，防死循环）
+            end = snap_fwd(text, start + 1);
+        }
         // 尽量在段落/句子边界分割
         let mut cut = end;
         if end < text.len() {
@@ -88,7 +105,8 @@ fn chunk_text(text: &str, doc_id: &str, doc_path: &str, doc_name: &str, source: 
             if let Some(pos) = slice.rfind('\n') {
                 cut = start + pos + 1;
             } else if let Some(pos) = slice.rfind('。') {
-                cut = start + pos + 1;
+                // '。' 是 3 字节字符，必须按其字节长度推进，否则切进多字节中间
+                cut = start + pos + '。'.len_utf8();
             } else if let Some(pos) = slice.rfind('.') {
                 cut = start + pos + 1;
             }
@@ -108,8 +126,17 @@ fn chunk_text(text: &str, doc_id: &str, doc_path: &str, doc_name: &str, source: 
         });
         idx += 1;
 
-        // 下一个块的起始位置（考虑重叠）
-        start = if cut >= text.len() { text.len() } else { (cut as i64 - overlap as i64).max(start as i64 + 1) as usize };
+        // 下一个块的起始位置（考虑重叠）；两个候选都必须吸附到字符边界并严格推进
+        start = if cut >= text.len() {
+            text.len()
+        } else {
+            let back = snap_back(text, cut.saturating_sub(overlap));
+            if back > start {
+                back
+            } else {
+                snap_fwd(text, start + 1) // 无法回退重叠时至少前进一个字符
+            }
+        };
         if start >= text.len() { break; }
     }
 
@@ -511,7 +538,7 @@ pub fn kb_read_file(path: String) -> Result<String, String> {
     // 限制读取文件大小（最大 10MB，文本文件 10MB ≈ 200 万汉字）
     let metadata = std::fs::metadata(p).map_err(|e| format!("读取文件元数据失败: {}", e))?;
     if metadata.len() > 10_485_760 {
-        return Err("文件超过 1MB 限制，无法读取".to_string());
+        return Err("文件超过 10MB 限制，无法读取".to_string());
     }
     // 检查文件类型（仅允许文本文件）
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -523,10 +550,14 @@ pub fn kb_read_file(path: String) -> Result<String, String> {
     }
     let content = std::fs::read_to_string(p)
         .map_err(|e| format!("读取文件失败: {}", e))?;
-    // 截断到 8000 字符
+    // 截断到 8000 字符（按字符边界截断，多字节字符内切片会 panic）
     if content.len() > 8000 {
-        let truncated = &content[..8000];
-        return Ok(format!("{}\n\n... [文件过长，仅显示前 8000 字符，共 {} 字符]", truncated, content.len()));
+        let mut end = 8000.min(content.len());
+        while end > 0 && !content.is_char_boundary(end) { end -= 1; }
+        let truncated = &content[..end];
+        let shown = truncated.chars().count();
+        let char_count = content.chars().count();
+        return Ok(format!("{}\n\n... [文件过长，仅显示前 {} 字符，共 {} 字符]", truncated, shown, char_count));
     }
     Ok(content)
 }
