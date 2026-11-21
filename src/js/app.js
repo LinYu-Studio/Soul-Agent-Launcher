@@ -246,6 +246,10 @@ function showStepError(stepId, msg, skippable) {
         var retryBtn = document.getElementById('setupErrorRetryBtn');
         if (!box || !title || !msgEl) { resolve(true); return; }
 
+        // 弹窗位于 setupOverlay 内：已安装路径下该层是隐藏的，须临时显示否则弹窗不可见（启动将卡死在等待点击）
+        var overlay = document.getElementById('setupOverlay');
+        if (overlay) overlay.classList.remove('hidden');
+
         title.textContent = '提示';
         msgEl.textContent = `${msg}\n\n${skippable ? '点击「跳过」可继续；也可稍后在 设置 → 环境修复 一键重装。' : '点击「重试」再试一次。'}`;
         skipBtn.style.display = skippable ? 'inline-block' : 'none';
@@ -265,6 +269,9 @@ function showCriticalError(stepId, msg) {
     var msgEl = document.getElementById('setupReportMsg');
     var detail = document.getElementById('setupReportDetail');
     if (!box) return;
+    // 同 showStepError：保证关键错误报告在启动画面之上可见
+    var overlay = document.getElementById('setupOverlay');
+    if (overlay) overlay.classList.remove('hidden');
     box.classList.remove('hidden');
     msgEl.textContent = `${stepId} 步骤失败，无法继续运行。`;
     var report = '=== Soul Agent Launcher 错误报告 ===\n';
@@ -402,22 +409,38 @@ async function restoreLastModels() {
     }
 }
 
+/// 启动画面进度更新（boot splash：初始化完成前覆盖主界面）
+function bootProgress(pct, text) {
+    var fill = document.getElementById('bootSplashFill');
+    var status = document.getElementById('bootSplashStatus');
+    if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    if (status && text) status.textContent = text;
+}
+
+/// 启动画面淡出移除（在欢迎框弹出之前调用，此刻应用已彻底加载完毕）
+function hideBootSplash() {
+    var splash = document.getElementById('bootSplash');
+    if (!splash) return;
+    bootProgress(100, '启动完成');
+    splash.classList.add('boot-done');
+    setTimeout(function() { splash.remove(); }, 500);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     debugLog('DOMContentLoaded 开始');
+
+    // 启动画面：欢迎框在全部初始化完成后才弹出（避免点击选项框时窗口卡顿）
+    bootProgress(4, '正在初始化…');
 
     // 侧边栏版本号（唯一来源 APP_VERSION；只替换首个文本节点，保留跑分徽章）
     var verEl = document.getElementById('sidebarVersion');
     if (verEl && verEl.firstChild) verEl.firstChild.nodeValue = APP_VERSION_LABEL + ' ';
+    var splashVer = document.getElementById('bootSplashVersion');
+    if (splashVer) splashVer.textContent = APP_VERSION_LABEL;
 
     // 隐私政策检查
     if (!localStorage.getItem('sal-privacy-accepted')) {
         document.getElementById('privacyOverlay')?.classList.remove('hidden');
-    }
-
-    // 模式选择弹窗：检查是否需要显示
-    var modeShown = await showModeSelection();
-    if (modeShown) {
-        // 用户已选择模式，继续初始化
     }
 
     initSetupState();
@@ -428,12 +451,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         initLanguage();
         debugLog('语言检测完成');
     });
+    bootProgress(14, '正在加载语言…');
 
     // === 步骤 2: 主题 ===
     await runStep('theme', async () => {
         initTheme();
         debugLog('主题加载完成');
     });
+    bootProgress(22, '正在应用主题…');
 
     // === 步骤 3: 配置恢复 ===
     await runStep('config', async () => {
@@ -448,18 +473,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             // 首次运行，无配置文件，正常
         }
     });
+    bootProgress(30, '正在恢复配置…');
 
     // === 步骤 4: 硬件检测 + 后端同步 ===
+    bootProgress(34, '正在检测硬件与加速后端…');
     await runStep('backend', async () => {
         await checkAndRunSetup();
     });
 
     // === 步骤 5: llama.cpp 版本校验 ===
+    bootProgress(55, '正在校验 llama.cpp 版本…');
     await runStep('llama', async () => {
         await checkLlamaVersion();
     });
 
     // === 步骤 6: Python 检测 ===
+    bootProgress(65, '正在检测 Python…');
     await runStep('python', async () => {
         var installed = await window.__TAURI__.core.invoke('check_python_installed');
         if (!installed) {
@@ -469,6 +498,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // === 步骤 7: pip 检测 ===
+    bootProgress(75, '正在检测 pip…');
     await runStep('pip', async () => {
         var installed = await window.__TAURI__.core.invoke('check_pip_installed');
         if (!installed) {
@@ -478,24 +508,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // === 步骤 8: ModelScope 检测 ===
+    bootProgress(82, '正在检查 ModelScope…');
     await runStep('mscope', async () => {
         await checkAndInstallModelscope();
     });
 
     hideSetupOverlay();
+    bootProgress(90, '正在加载界面…');
     debugLog('所有环境检测完成');
 
     loadSettings();
     initNavigation();
     initLaunchPage();
+    bootProgress(93, '正在恢复上次运行的模型…');
     // 在轮询持久化之前读取上次状态并恢复（读操作是同步的，无竞态）
-    restoreLastModels();
+    await restoreLastModels();
+    bootProgress(97, '正在启动状态轮询…');
     startStatusPolling();
 
     // 延迟 5 秒检查更新
     setTimeout(checkUpdate, 5000);
 
     listenServerOutput();
+
+    // 全部就绪：淡出启动画面，再弹模式选择（此刻 UI 空闲，点击零卡顿）
+    hideBootSplash();
+    await showModeSelection();
 
     // 新手模式：高亮提示一键部署（闪烁 3 次）
     if (localStorage.getItem('sal-mode') === 'newbie') {

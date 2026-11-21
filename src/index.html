@@ -7,7 +7,16 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <div class="mica" aria-hidden="true"></div>
+    <!-- 启动加载画面：初始化完成前覆盖主界面（进度条实现参考 deepseek-harness 启动占位页，SAL 配色） -->
+    <div id="bootSplash">
+        <div class="boot-splash-inner">
+            <img src="assets/thinker-icon.png" class="boot-splash-logo" alt="">
+            <div class="boot-splash-title">Soul Agent Launcher</div>
+            <div class="boot-splash-version" id="bootSplashVersion"></div>
+            <div class="boot-splash-bar"><div class="boot-splash-fill" id="bootSplashFill"></div></div>
+            <div class="boot-splash-status" id="bootSplashStatus" role="status">正在启动…</div>
+        </div>
+    </div>
     <div class="mica-noise" aria-hidden="true"></div>
 
     <!-- SVG 图标库（Lucide 风格，Win11 亚克力概念图标） -->

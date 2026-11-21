@@ -1434,3 +1434,39 @@ body {
     from { opacity: 0; transform: translateY(12px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== 启动加载画面（boot splash）=====
+   进度条实现参考 deepseek-harness 启动占位页：细条+状态文字+尊重 reduced-motion；
+   主题配色用 SAL 自己的变量（--accent / --bg-mica / 文字色阶） */
+#bootSplash {
+    position: fixed; inset: 0; z-index: 60;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-mica);
+    backdrop-filter: blur(80px) saturate(1.25);
+    -webkit-backdrop-filter: blur(80px) saturate(1.25);
+    transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+#bootSplash.boot-done { opacity: 0; visibility: hidden; pointer-events: none; }
+.boot-splash-inner { display: flex; flex-direction: column; align-items: center; }
+.boot-splash-logo { width: 64px; height: 64px; margin-bottom: 16px; animation: boot-splash-pulse 2s ease-in-out infinite; }
+.boot-splash-title { font-size: 20px; font-weight: 600; color: var(--text-primary); letter-spacing: 0.5px; }
+.boot-splash-version { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+.boot-splash-bar {
+    width: 280px; height: 4px; margin-top: 24px; border-radius: 100px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    overflow: hidden;
+}
+.boot-splash-fill {
+    width: 0%; height: 100%; border-radius: 100px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+}
+.boot-splash-status { font-size: 12px; color: var(--text-secondary); margin-top: 14px; min-height: 18px; }
+@keyframes boot-splash-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.75; transform: scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .boot-splash-logo { animation: none; }
+    .boot-splash-fill { transition: none; }
+}
