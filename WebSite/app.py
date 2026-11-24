@@ -108,6 +108,13 @@ def proxy_download(filename):
     return Response(stream(), headers=headers)
 
 
+@app.route('/download-page')
+@app.route('/download-page.html')
+def legacy_download_page():
+    """旧版官网的下载页（已下线），永久重定向到首页下载区，避免搜索引擎留死链"""
+    return redirect('/#download', code=301)
+
+
 @app.route('/download/latest')
 def download_latest():
     """重定向到最新版 MSI 下载（一律用同域相对路径，浏览器自己解析域名）"""
