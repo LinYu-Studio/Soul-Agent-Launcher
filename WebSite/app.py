@@ -53,6 +53,22 @@ def favicon():
     return send_from_directory(app.static_folder, 'favicon.ico', max_age=86400)
 
 
+@app.route('/robots.txt')
+def robots():
+    return send_from_directory(app.static_folder, 'robots.txt', mimetype='text/plain', max_age=3600)
+
+
+@app.route('/sitemap.xml')
+def sitemap():
+    return send_from_directory(app.static_folder, 'sitemap.xml', mimetype='application/xml', max_age=3600)
+
+
+@app.route('/BingSiteAuth.xml')
+def bing_auth():
+    """Bing 站点验证文件：放在 static/ 下即自动对外提供（账号专属，不随仓库分发）"""
+    return send_from_directory(app.static_folder, 'BingSiteAuth.xml', mimetype='application/xml', max_age=86400)
+
+
 @app.route('/')
 @app.route('/index.html')
 def index():
