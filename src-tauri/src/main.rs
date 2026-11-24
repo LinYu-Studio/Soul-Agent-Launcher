@@ -320,6 +320,21 @@ struct ServerState {
 /// 单服务器模式的"计划内停止"标记：stop/wake/sleep 都会杀进程再重启，
 /// 监控线程看到该标记时跳过（避免把计划内操作误判为崩溃）
 static SERVER_EXPECTED_STOP: AtomicBool = AtomicBool::new(false);
+
+/// 退出流程标记：为 true 时窗口关闭不再被拦截（避免优雅退出被 prevent_close 挡住）
+static QUITTING: AtomicBool = AtomicBool::new(false);
+
+/// 优雅退出：先销毁所有 WebView 窗口，再结束事件循环。
+/// 直接 app.exit(0) 会在窗口仍存活时拆解 WebView2，Chromium 注销窗口类时
+/// 报 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412"
+/// （1412 = ERROR_CLASS_HAS_WINDOWS，本身无害，但日志很吵）。
+fn shutdown_app(app: &tauri::AppHandle) {
+    QUITTING.store(true, Ordering::SeqCst);
+    for (_label, win) in app.webview_windows() {
+        let _ = win.destroy();
+    }
+    app.exit(0);
+}
 /// 单服务器模式连续崩溃计数
 static SERVER_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 模型/服务自动重启的最大尝试次数，超过则放弃并通知前端
@@ -4494,7 +4509,7 @@ fn close_app(app_handle: tauri::AppHandle, state: State<RunningModelsState>) -> 
             }
         }
     }
-    app_handle.exit(0);
+    shutdown_app(&app_handle);
     Ok(())
 }
 
@@ -5291,10 +5306,9 @@ fn main() {
                                     models.clear();
                                 }
                             }
-                            app.exit(0);
+                            shutdown_app(app);
                         }
-                        _ => {}
-                    }
+                        _ => {}                    }
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -5324,6 +5338,10 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // 退出流程中（shutdown_app 已销毁窗口）不再拦截
+                if QUITTING.load(Ordering::SeqCst) {
+                    return;
+                }
                 // 阻止关闭，改为隐藏到托盘
                 api.prevent_close();
                 let _ = window.hide();
