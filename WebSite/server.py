@@ -115,7 +115,16 @@ def load_current_version():
 
 
 def save_current_version(data):
-    atomic_write_text(UPDATES_DIR / 'current.json', json.dumps(data, indent=2, ensure_ascii=False))
+    # 覆盖前留一份上一版，发布失误时可直接回滚
+    path = UPDATES_DIR / 'current.json'
+    if path.exists():
+        try:
+            with open(path, encoding='utf-8') as f:
+                prev = f.read()
+            atomic_write_text(UPDATES_DIR / 'current.json.bak', prev)
+        except OSError:
+            pass
+    atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def parse_version(v) -> tuple:

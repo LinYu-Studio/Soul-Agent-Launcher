@@ -1,7 +1,7 @@
 {
   "latest_version": "0.3.2",
-  "download_url": "/downloads/Soul Agent Launcher_0.3.2_x64_en-US.msi",
-  "sha256": "",
+  "download_url": "/downloads/Soul_Agent_Launcher_0.3.2_x64_en-US.msi",
+  "sha256": "073ddfa4fb3dde2ecdf9367b5b71b33618d6c3147fe7f3f4edfdb7ac60fda546",
   "release_notes": "Python 自动安装 + 0.3.2 版本发布",
   "force_update": false,
   "release_date": "2026-06-12"
