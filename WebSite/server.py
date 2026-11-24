@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Soul Agent Launcher — 更新服务器"""
+"""Soul Agent Launcher — 更新服务器
+
+部署形态（生产）：
+  - 本服务只监听 127.0.0.1:7890，由 Caddy 反向代理 sal.bszx.site
+  - /api/check-update   客户端检查更新
+  - /downloads/<file>   安装包下载（支持 Range 断点续传）
+  - /admin              管理后台（上传 MSI 自动算 SHA256 并发布）
+  - /health             健康检查
+
+安全说明：源码不再内置默认密码。密码来源优先级：
+  1) 同目录 config.json 的 admin_password_hash
+  2) 环境变量 SAL_ADMIN_PASSWORD_HASH（sha256 hex）或 SAL_ADMIN_PASSWORD（明文，兼容用）
+  3) 都没有 → 自动生成随机密码，仅打印到 stdout/日志一次
+"""
 import sys
 import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
-import os, json, hashlib, shutil, datetime
+import os, json, re, hashlib, secrets, datetime
 from pathlib import Path
-from flask import Flask, request, jsonify, render_template, send_file, session, redirect, url_for
-from werkzeug.utils import secure_filename
+from flask import Flask, request, jsonify, render_template, send_file, session, redirect, url_for, abort
 from functools import wraps
 
 BASE_DIR = Path(__file__).parent
@@ -19,45 +31,64 @@ CONFIG_PATH = BASE_DIR / 'config.json'
 UPLOAD_DIR.mkdir(exist_ok=True)
 UPDATES_DIR.mkdir(exist_ok=True)
 
-# 默认配置
-DEFAULT_CONFIG = {
-    "admin_user": "Saki",
-    "admin_password_hash": hashlib.sha256("Saki5201314".encode()).hexdigest(),
-    "session_secret": os.urandom(24).hex()
-}
+
+def sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def build_default_config():
+    """生成默认配置：密码优先取环境变量，否则随机生成并打印一次"""
+    pw_hash = os.environ.get('SAL_ADMIN_PASSWORD_HASH', '').strip()
+    generated = None
+    if not pw_hash:
+        raw_pw = os.environ.get('SAL_ADMIN_PASSWORD', '').strip()
+        if raw_pw:
+            pw_hash = sha256_hex(raw_pw)
+        else:
+            generated = secrets.token_urlsafe(12)
+            pw_hash = sha256_hex(generated)
+    cfg = {
+        "admin_user": os.environ.get('SAL_ADMIN_USER', 'Saki'),
+        "admin_password_hash": pw_hash,
+        "session_secret": secrets.token_hex(24),
+    }
+    if generated:
+        print("=" * 60, flush=True)
+        print(f"[SAL] 首次启动，已生成管理后台随机密码: {generated}", flush=True)
+        print("[SAL] 请立即登录 /admin 并记录；此密码只显示这一次。", flush=True)
+        print("=" * 60, flush=True)
+    return cfg
+
 
 def load_config():
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
+        with open(CONFIG_PATH, encoding='utf-8') as f:
             return json.load(f)
-    with open(CONFIG_PATH, 'w') as f:
-        json.dump(DEFAULT_CONFIG, f, indent=2)
-    return DEFAULT_CONFIG
+    cfg = build_default_config()
+    atomic_write_text(CONFIG_PATH, json.dumps(cfg, indent=2))
+    return cfg
+
+
+def atomic_write_text(path: Path, content: str):
+    """原子写：临时文件 + rename，避免进程中断留下半截 JSON"""
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
 
 config = load_config()
 app = Flask(__name__)
-app.secret_key = config.get("session_secret", "dev-secret-key-12345")
+app.secret_key = config.get("session_secret", secrets.token_hex(24))
 app.jinja_env.add_extension('jinja2.ext.loopcontrols')
+app.json.ensure_ascii = False
 
 # 确保 Flask 以 UTF-8 读取模板
 import jinja2
 app.jinja_loader = jinja2.FileSystemLoader(str(BASE_DIR / 'templates'), encoding='utf-8')
 
-# ============================================================
-# 工具函数
-# ============================================================
-
-def load_current_version():
-    path = UPDATES_DIR / 'current.json'
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {"latest_version": "0.0.0", "download_url": "", "release_notes": "", "force_update": False}
-
-def save_current_version(data):
-    path = UPDATES_DIR / 'current.json'
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
 def login_required(f):
     @wraps(f)
@@ -67,31 +98,69 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
+
+# ============================================================
+# 工具函数
+# ============================================================
+
+def load_current_version():
+    path = UPDATES_DIR / 'current.json'
+    if path.exists():
+        try:
+            with open(path, encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"latest_version": "0.0.0", "download_url": "", "release_notes": "", "force_update": False}
+
+
+def save_current_version(data):
+    atomic_write_text(UPDATES_DIR / 'current.json', json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def parse_version(v) -> tuple:
+    """把任意版本串解析成 (major, minor, patch)。
+    兼容 'v0.4.2'、'0.4.2-beta'、'0.4.2+Beta' 等——只取前三段数字，不因后缀崩溃。"""
+    nums = [int(x) for x in re.findall(r'\d+', str(v or '0'))[:3]]
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums)
+
+
+def safe_filename(name: str) -> str:
+    """上传文件名归一化：保留 ASCII 字母数字与 . _ -，空格统一成下划线。
+    返回的名字同时用作磁盘文件名和 download_url，保证两者一致（避免历史 404）。"""
+    base = os.path.basename(str(name or '')).strip()
+    base = re.sub(r'\s+', '_', base)
+    base = re.sub(r'[^A-Za-z0-9._\-]', '', base)
+    return base.lstrip('.') or 'package.bin'
+
+
 # ============================================================
 # API — 客户端更新检查
 # ============================================================
 
+@app.route('/health')
+def health():
+    return jsonify({"ok": True, "service": "sal-update", "version": load_current_version().get('latest_version', '')})
+
+
 @app.route('/')
 def index():
-    """本服务是更新服务器（无首页），根路径跳转到管理后台"""
+    """本服务是更新服务器，根路径跳转到管理后台"""
     return redirect(url_for('admin_login'))
+
 
 @app.route('/api/check-update', methods=['GET'])
 def api_check_update():
     current_version = request.args.get('current_version', '0.0.0')
     version_info = load_current_version()
-    
-    # 比较版本号
-    def parse_version(v):
-        parts = v.lstrip('v').split('.')
-        return tuple(int(x) for x in parts[:3])
-    
+
     current = parse_version(current_version)
     latest = parse_version(version_info.get('latest_version', '0.0.0'))
-    
     has_update = latest > current
-    
-    return jsonify({
+
+    resp = jsonify({
         "has_update": has_update,
         "latest_version": version_info.get('latest_version', '0.0.0'),
         "download_url": version_info.get('download_url', ''),
@@ -100,19 +169,26 @@ def api_check_update():
         "force_update": version_info.get('force_update', False),
         "release_date": version_info.get('release_date', ''),
     })
+    # 客户端每次启动都查询，禁止任何缓存层返回旧版本号
+    resp.headers['Cache-Control'] = 'no-store, must-revalidate'
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
 
-@app.route('/downloads/<path:filename>', methods=['GET'])
+
+@app.route('/downloads/<path:filename>', methods=['GET', 'HEAD'])
 def api_download(filename):
-    # 先按原始文件名找（支持文件名含空格）
-    file_path = UPLOAD_DIR / filename
-    if not file_path.exists():
-        # 回退：secure_filename 会把空格转下划线
-        safe = secure_filename(filename)
-        file_path2 = UPLOAD_DIR / safe
-        if file_path2.exists():
-            return send_file(file_path2, as_attachment=True, download_name=safe)
-        return jsonify({"error": "File not found"}), 404
-    return send_file(file_path, as_attachment=True, download_name=filename)
+    # 只允许取 basename，阻断 ../ 路径穿越
+    target = UPLOAD_DIR / os.path.basename(filename)
+    if not target.exists() or not target.is_file():
+        # 兼容历史带空格文件名（旧版本按原样存过）
+        alt = UPLOAD_DIR / safe_filename(filename)
+        if alt.exists() and alt.is_file():
+            target = alt
+        else:
+            abort(404, description="File not found")
+    # conditional=True：自动支持 Range/If-Range/ETag，断点续传依赖它
+    return send_file(target, as_attachment=True, download_name=target.name, conditional=True)
+
 
 # ============================================================
 # 管理后台
@@ -124,14 +200,13 @@ def admin_login():
     if request.method == 'POST':
         username = request.form.get('username', '')
         password = request.form.get('password', '')
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
-        if username == config['admin_user'] and pw_hash == config['admin_password_hash']:
+        if username == config.get('admin_user') and sha256_hex(password) == config.get('admin_password_hash'):
             session['admin_logged_in'] = True
             return redirect(url_for('admin_panel'))
-        else:
-            error = '用户名或密码错误'
-    
+        error = '用户名或密码错误'
+
     return render_template('admin.html', error=error, login=True)
+
 
 @app.route('/admin/panel')
 @login_required
@@ -146,8 +221,9 @@ def admin_panel():
                 'size': f"{stat.st_size / 1024 / 1024:.1f}MB",
                 'mtime': datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
             })
-    
+
     return render_template('admin.html', login=False, version_info=version_info, versions=versions)
+
 
 @app.route('/admin/update-version', methods=['POST'])
 @login_required
@@ -155,18 +231,19 @@ def admin_update_version():
     latest_version = request.form.get('latest_version', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
     force_update = request.form.get('force_update', 'off') == 'on'
-    release_date = request.form.get('release_date', datetime.date.today().isoformat())
+    release_date = request.form.get('release_date', '').strip() or datetime.date.today().isoformat()
 
-    # 找到最新上传的文件作为下载 URL
     download_url = ''
     sha256 = ''
     uploaded_file = request.files.get('file')
     if uploaded_file and uploaded_file.filename:
-        safe_name = secure_filename(uploaded_file.filename)
-        file_path = UPLOAD_DIR / safe_name
-        uploaded_file.save(file_path)
-        download_url = f'/downloads/{safe_name}'
-        # 上传即计算 SHA256，随 current.json 下发，客户端安装前校验
+        name = safe_filename(uploaded_file.filename)
+        file_path = UPLOAD_DIR / name
+        # 先写临时文件再 rename，避免上传中断留下损坏的包被直接发布
+        tmp_path = UPLOAD_DIR / (name + '.uploading')
+        uploaded_file.save(tmp_path)
+        os.replace(tmp_path, file_path)
+        download_url = f'/downloads/{name}'
         h = hashlib.sha256()
         with open(file_path, 'rb') as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b''):
@@ -187,10 +264,12 @@ def admin_update_version():
 
     return redirect(url_for('admin_panel'))
 
+
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
     return redirect(url_for('admin_login'))
+
 
 # ============================================================
 # 启动
@@ -198,9 +277,12 @@ def admin_logout():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 7890))
+    host = os.environ.get('HOST', '127.0.0.1')
     print(f"\n  Soul Agent Launcher 更新服务器")
     print(f"  ─────────────────────────────")
-    print(f"  API:       http://0.0.0.0:{port}/api/check-update")
-    print(f"  管理后台:  http://0.0.0.0:{port}/admin")
-    print(f"  启动完成\n")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"  监听:      {host}:{port}")
+    print(f"  API:       /api/check-update")
+    print(f"  管理后台:  /admin")
+    print(f"  下载目录:  {UPLOAD_DIR}  ({len(list(UPLOAD_DIR.glob('*.msi')))} 个 MSI)")
+    print(f"  启动完成\n", flush=True)
+    app.run(host=host, port=port, debug=False)
