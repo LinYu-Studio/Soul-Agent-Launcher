@@ -2568,7 +2568,7 @@ fn save_config(config: LauncherConfig) -> Result<(), String> {
 }
 
 // ============================================================
-// 魔塔社区 (ModelScope) 集成
+// 魔搭社区 (ModelScope) 集成
 // ============================================================
 
 /// 下载进程跟踪
@@ -2593,7 +2593,7 @@ struct ModelScopeModelBrief {
     path: String,
 }
 
-/// 搜索魔塔社区模型 — 只解析我们需要的字段，忽略其余巨大字段
+/// 搜索魔搭社区模型 — 只解析我们需要的字段，忽略其余巨大字段
 #[allow(non_snake_case)]
 #[derive(Deserialize, Default)]
 #[serde(default)]

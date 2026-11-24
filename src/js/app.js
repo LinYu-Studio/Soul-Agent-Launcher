@@ -2568,7 +2568,7 @@ async function deleteModel(index) {
 }
 
 // ============================================================
-// 魔塔社区 (Model Hub)
+// 魔搭社区 (Model Hub)
 // ============================================================
 
 let _hubQuery = 'GGUF';
@@ -3195,7 +3195,7 @@ async function autoStartModelAfterDownload() {
     }
 }
 
-/// 从魔塔社区下载模型
+/// 从魔搭社区下载模型
 async function downloadFromHub(modelId) {
     // 检查 modelscope CLI 是否可用
     let available = false;
