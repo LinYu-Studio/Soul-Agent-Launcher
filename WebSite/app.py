@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, Response, request
+from flask import Flask, render_template, redirect, Response, request, send_from_directory
 import urllib.request, urllib.parse, json, os, time
 
 app = Flask(__name__)
@@ -45,6 +45,12 @@ def get_latest_version():
         'release_notes': '',
         'release_date': ''
     }
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """浏览器默认会直接请求根路径 favicon.ico（不读 link 标签时），这里兜底"""
+    return send_from_directory(app.static_folder, 'favicon.ico', max_age=86400)
 
 
 @app.route('/')
