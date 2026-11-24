@@ -2284,20 +2284,50 @@ async fn install_python(app_handle: tauri::AppHandle) -> Result<String, String> 
 fn run_python_installer(path: &std::path::Path) -> Result<String, String> {
     soul_log("INFO", "python", &format!("安装包路径: {:?}", path));
 
+    // InstallAllUsers=0：装到当前用户 %LOCALAPPDATA%\Programs\Python\Python311，
+    // 不需要管理员权限（SAL 以标准用户运行，全机安装会因未提权静默失败 1603）。
+    // PrependPath=1 仍会写入用户 PATH，where python 与 check_python_installed 都能找到。
     let mut cmd = new_hidden_cmd(&path.to_string_lossy());
     let output = cmd
-        .args(["/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0"])
+        .args(["/quiet", "InstallAllUsers=0", "PrependPath=1", "Include_test=0"])
         .output()
         .map_err(|e| format!("启动安装程序失败: {}", e))?;
 
     if output.status.success() {
         soul_log("INFO", "python", "Python 3.11 安装成功");
+        refresh_python_path();
         Ok("Python 3.11 安装成功".to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         soul_log("ERROR", "python", &format!("安装失败: {}", stderr));
         Err(format!("Python 安装失败: {}", stderr))
     }
+}
+
+/// 安装 Python 后把用户级 Python 目录补进当前进程 PATH。
+/// Windows 不会把新写入的 PATH 广播给已运行进程，不刷新的话
+/// 本次会话里 pip/modelscope 仍会 "not found"，用户要重启应用才生效。
+fn refresh_python_path() {
+    let local = match std::env::var("LOCALAPPDATA") {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let py_root = std::path::PathBuf::from(&local)
+        .join("Programs").join("Python").join("Python311");
+    let extra = [
+        py_root.to_string_lossy().to_string(),
+        py_root.join("Scripts").to_string_lossy().to_string(),
+    ];
+    let current = std::env::var("PATH").unwrap_or_default();
+    let lower = current.to_lowercase();
+    let mut missing: Vec<String> = extra.into_iter()
+        .filter(|p| !lower.contains(&p.to_lowercase()))
+        .collect();
+    if missing.is_empty() { return; }
+    missing.push(current);
+    let merged = missing.join(";");
+    std::env::set_var("PATH", &merged);
+    soul_log("INFO", "python", "已将用户级 Python 路径注入当前进程 PATH");
 }
 
 // ============================================================
