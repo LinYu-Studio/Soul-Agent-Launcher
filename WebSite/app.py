@@ -3,6 +3,17 @@ import urllib.request, urllib.parse, json, os, time
 
 app = Flask(__name__)
 
+# ============================================================
+# IndexNow：Bing/Yandex 免登录 URL 提交协议
+# 密钥文件必须可从站点根目录访问，内容与文件名一致
+# ============================================================
+INDEXNOW_KEY = os.environ.get('SAL_INDEXNOW_KEY', '5d24e1f2ab664e775c7c2d9996bd084e')
+
+
+@app.route('/' + INDEXNOW_KEY + '.txt')
+def indexnow_key():
+    return Response(INDEXNOW_KEY, mimetype='text/plain')
+
 # 服务端内部访问更新 API 的地址（仅服务端用它取数据，绝不下发给浏览器）
 _INTERNAL_API = os.environ.get('SAL_API_BASE', '').strip() or 'http://127.0.0.1:7890'
 

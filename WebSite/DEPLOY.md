@@ -86,3 +86,29 @@ ssh hk "cat /srv/sal/updates/current.json"           # 当前发布的版本
 ssh hk "cp /etc/caddy/Caddyfile.bak-pre-sal-<时间戳> /etc/caddy/Caddyfile && systemctl reload caddy"
 ssh hk "systemctl disable --now sal-update sal-web"
 ```
+
+## SEO / 搜索引擎收录
+
+- `static/robots.txt`：允许抓页面，屏蔽 `/admin` `/api` `/downloads`
+- `static/sitemap.xml`：收录 `/` 与 `/tutorial`（改版后记得更新 lastmod）
+- `/<key>.txt`：IndexNow 密钥（当前 key `5d24e1f2ab664e775c7c2d9996bd084e`，
+  由 `app.py` 的 `INDEXNOW_KEY` 提供，可用环境变量 `SAL_INDEXNOW_KEY` 覆盖）
+
+### 新版本发布后提交收录（IndexNow，Bing/Yandex 通用）
+
+```bash
+curl -X POST https://api.indexnow.org/indexnow \
+  -H "Content-Type: application/json; charset=utf-8" \
+  --data '{
+    "host": "sal.bszx.site",
+    "key": "5d24e1f2ab664e775c7c2d9996bd084e",
+    "keyLocation": "https://sal.bszx.site/5d24e1f2ab664e775c7c2d9996bd084e.txt",
+    "urlList": ["https://sal.bszx.site/", "https://sal.bszx.site/tutorial"]
+  }'
+# 返回 202 = 已受理；200 = 已受理（URL 之前提交过）
+```
+
+### Bing 站点验证文件（可选）
+
+从 Bing Webmaster Tools 下载 `BingSiteAuth.xml` 放入 `WebSite/static/`，
+`/BingSiteAuth.xml` 路由会直接对外提供（缺失时为 404，不影响抓取）。
