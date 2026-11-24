@@ -827,10 +827,10 @@
                     <h3 class="section-title">行为</h3>
                     <div class="form-group">
                         <label>
-                            <input type="checkbox" id="autoUnloadModels">
-                            退出时自动卸载模型
+                            <input type="checkbox" id="quitOnClose" checked>
+                            <span data-i18n="settings.quit_on_close">关闭窗口时退出 SAL</span>
                         </label>
-                        <div class="form-hint">关闭窗口后清理所有模型进程，释放显存</div>
+                        <div class="form-hint" data-i18n="settings.quit_on_close_hint">默认开启：点击右上角 ✕ 直接退出 SAL 并释放内存/显存；关闭后 ✕ 仅隐藏到托盘继续常驻</div>
                     </div>
                     <div class="form-group">
                         <label>

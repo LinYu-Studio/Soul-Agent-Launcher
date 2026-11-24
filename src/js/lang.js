@@ -69,6 +69,8 @@ const TRANSLATIONS = {
         'settings.ctx_size': '上下文长度',
         'settings.auto_unload': '退出时卸载模型',
         'settings.auto_unload_desc': '关闭窗口时自动停止所有模型进程',
+        'settings.quit_on_close': '关闭窗口时退出 SAL',
+        'settings.quit_on_close_hint': '默认开启：点击右上角 ✕ 直接退出 SAL 并释放内存/显存；关闭后 ✕ 仅隐藏到托盘继续常驻',
         'settings.version': '版本',
 
         /* 模型 */
@@ -259,6 +261,8 @@ const TRANSLATIONS = {
         'settings.ctx_size': 'Context Size',
         'settings.auto_unload': 'Unload models on exit',
         'settings.auto_unload_desc': 'Auto-stop all model processes when closing window',
+        'settings.quit_on_close': 'Quit SAL when closing the window',
+        'settings.quit_on_close_hint': 'On by default: clicking ✕ quits SAL and frees memory/VRAM; turn off to keep it running in the tray',
         'settings.version': 'Version',
 
         /* Model */

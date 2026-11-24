@@ -324,6 +324,32 @@ static SERVER_EXPECTED_STOP: AtomicBool = AtomicBool::new(false);
 /// 退出流程标记：为 true 时窗口关闭不再被拦截（避免优雅退出被 prevent_close 挡住）
 static QUITTING: AtomicBool = AtomicBool::new(false);
 
+/// 点击标题栏 ✕ 时是否直接退出 SAL（默认 true）。
+/// false 时保持旧行为：隐藏到托盘常驻。
+static QUIT_ON_CLOSE: AtomicBool = AtomicBool::new(true);
+
+/// 结束所有 llama 进程（释放显存/内存），只做进程清理，不动窗口
+fn kill_all_models(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<RunningModelsState>() {
+        if let Ok(mut models) = state.models.lock() {
+            for m in models.iter() {
+                if let Ok(pid) = m.pid.parse::<u32>() {
+                    let _ = new_hidden_cmd("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
+            }
+            models.clear();
+        }
+    }
+}
+
+/// 清理模型 + 优雅退出（托盘"退出" / 关闭窗口退出 / close_app 共用）
+fn cleanup_and_exit(app: &tauri::AppHandle) {
+    kill_all_models(app);
+    shutdown_app(app);
+}
+
 /// 优雅退出：先销毁所有 WebView 窗口，再结束事件循环。
 /// 直接 app.exit(0) 会在窗口仍存活时拆解 WebView2，Chromium 注销窗口类时
 /// 报 "Failed to unregister class Chrome_WidgetWin_0. Error = 1412"
@@ -3612,46 +3638,21 @@ async fn maximize_window(handle: tauri::AppHandle) {
 
 #[tauri::command]
 async fn close_window(handle: tauri::AppHandle) {
-    // 读取配置，判断是否退出时卸载
-    let should_unload = load_auto_unload_setting();
-    soul_log("INFO", "window", &format!("close_window auto_unload={}", should_unload));
-
-    if should_unload {
-        soul_log("INFO", "window", "close_window 卸载所有模型并退出");
-        // 卸载所有模型
-        if let Some(models_state) = handle.try_state::<RunningModelsState>() {
-            if let Ok(mut models) = models_state.models.lock() {
-                for model in models.iter() {
-                    if let Ok(pid) = model.pid.parse::<u32>() {
-                        let _ = std::process::Command::new("taskkill")
-                            .args(["/F", "/PID", &pid.to_string()])
-                            .output();
-                    }
-                }
-                models.clear();
-            }
-        }
-        // 完全退出
-        handle.exit(0);
+    // 标题栏 ✕ 的入口（自定义标题栏按钮 → 前端 closeWindow() → 本命令）
+    if QUIT_ON_CLOSE.load(Ordering::SeqCst) {
+        soul_log("INFO", "window", "close_window：按设置退出 SAL，清理模型释放资源");
+        // 与托盘退出走同一条干净路径（先销毁窗口再退出，避免 1412 日志）
+        let h = handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            cleanup_and_exit(&h);
+        });
     } else {
-        // 不卸载，隐藏到托盘
+        soul_log("INFO", "window", "close_window：隐藏到托盘常驻");
         if let Some(window) = handle.get_webview_window("main") {
             let _ = window.hide();
         }
     }
-}
-
-fn load_auto_unload_setting() -> bool {
-    let launcher_dir = std::env::var("APPDATA")
-        .map(|d| PathBuf::from(d).join("Soul-Agent-Launcher"))
-        .unwrap_or_else(|_| PathBuf::from("."));
-    let config_path = launcher_dir.join("config.json");
-    if let Ok(content) = std::fs::read_to_string(&config_path) {
-        if let Ok(config) = serde_json::from_str::<LauncherConfig>(&content) {
-            return config.auto_unload;
-        }
-    }
-    true // 默认卸载
 }
 
 // ============================================================
@@ -4528,18 +4529,21 @@ fn set_auto_launch(enable: bool) -> Result<String, String> {
     }
 }
 
+/// 设置"点击关闭按钮时退出 SAL"（false = 旧行为：隐藏到托盘常驻）
+#[tauri::command]
+fn set_quit_on_close(enabled: bool) {
+    QUIT_ON_CLOSE.store(enabled, Ordering::SeqCst);
+    soul_log("INFO", "main", &format!(
+        "关闭窗口行为已更新: {}",
+        if enabled { "直接退出 SAL" } else { "隐藏到托盘" }
+    ));
+}
+
 /// 退出应用（退出前清理模型进程）。此前前端在调用但后端从未注册。
 #[tauri::command]
-fn close_app(app_handle: tauri::AppHandle, state: State<RunningModelsState>) -> Result<(), String> {
+fn close_app(app_handle: tauri::AppHandle, _state: State<RunningModelsState>) -> Result<(), String> {
     soul_log("INFO", "main", "close_app：退出应用");
-    if let Ok(models) = state.models.lock() {
-        for m in models.iter() {
-            if let Ok(pid) = m.pid.parse::<u32>() {
-                let _ = new_hidden_cmd("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
-            }
-        }
-    }
-    shutdown_app(&app_handle);
+    cleanup_and_exit(&app_handle);
     Ok(())
 }
 
@@ -5323,20 +5327,7 @@ fn main() {
                         }
                         "quit" => {
                             soul_log("INFO", "main", "托盘菜单退出，清理所有模型");
-                            // 退出前清理所有模型
-                            if let Some(models_state) = app.try_state::<RunningModelsState>() {
-                                if let Ok(mut models) = models_state.models.lock() {
-                                    for model in models.iter() {
-                                        if let Ok(pid) = model.pid.parse::<u32>() {
-                                            let _ = new_hidden_cmd("taskkill")
-                                                .args(["/F", "/PID", &pid.to_string()])
-                                                .output();
-                                        }
-                                    }
-                                    models.clear();
-                                }
-                            }
-                            shutdown_app(app);
+                            cleanup_and_exit(app);
                         }
                         _ => {}                    }
                 })
@@ -5372,7 +5363,19 @@ fn main() {
                 if QUITTING.load(Ordering::SeqCst) {
                     return;
                 }
-                // 阻止关闭，改为隐藏到托盘
+                // 设置：点击 ✕ 直接退出（默认）→ 走与托盘退出相同的干净路径：
+                // 先拦下本次关闭，交给后台线程清理模型并优雅退出（避免 1412 日志）
+                if QUIT_ON_CLOSE.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let handle = window.app_handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(120));
+                        soul_log("INFO", "main", "关闭窗口：按设置退出 SAL，清理模型");
+                        cleanup_and_exit(&handle);
+                    });
+                    return;
+                }
+                // 设置：隐藏到托盘常驻（旧行为）
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -5409,6 +5412,7 @@ fn main() {
             get_auto_launch,
             set_auto_launch,
             close_app,
+            set_quit_on_close,
             download_update,
             install_update,
             search_sessions,

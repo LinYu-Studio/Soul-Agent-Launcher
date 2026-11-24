@@ -3808,10 +3808,24 @@ function loadSettings() {
     const langSelect = document.getElementById('langSelect');
     if (langSelect) langSelect.value = getCurrentLang();
 
-    // 加载退出时卸载选项
-    const autoUnload = localStorage.getItem('launcher-auto-unload');
-    const autoUnloadEl = document.getElementById('autoUnloadModels');
-    if (autoUnloadEl) autoUnloadEl.checked = autoUnload !== 'false';  // 默认 true
+    // 关闭窗口行为：默认"直接退出 SAL"（释放内存/显存）；关闭后 ✕ 隐藏到托盘常驻
+    const quitOnCloseEl = document.getElementById('quitOnClose');
+    if (quitOnCloseEl) {
+        var quitOnClose = localStorage.getItem('launcher-quit-on-close') !== 'false';
+        quitOnCloseEl.checked = quitOnClose;
+        if (window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('set_quit_on_close', { enabled: quitOnClose }).catch(function() {});
+        }
+        quitOnCloseEl.onchange = function() {
+            var v = quitOnCloseEl.checked;
+            localStorage.setItem('launcher-quit-on-close', v ? 'true' : 'false');
+            if (window.__TAURI__?.core?.invoke) {
+                window.__TAURI__.core.invoke('set_quit_on_close', { enabled: v })
+                    .then(function() { showKbToast(v ? '关闭窗口将退出 SAL' : '关闭窗口将隐藏到托盘'); })
+                    .catch(function(e) { alert('保存设置失败: ' + e); });
+            }
+        };
+    }
 
     // 开机自启（读注册表实时状态；变更立即生效，不等"保存设置"）
     const autoLaunchEl = document.getElementById('autoLaunchOnBoot');
@@ -3869,10 +3883,13 @@ function saveSettings() {
         localStorage.setItem(key, val);
     });
 
-    // 保存退出时卸载选项
-    const autoUnloadEl = document.getElementById('autoUnloadModels');
-    if (autoUnloadEl) {
-        localStorage.setItem('launcher-auto-unload', autoUnloadEl.checked);
+    // 保存"关闭窗口时退出"（onchange 已即时生效，这里兜底再同步一次）
+    const quitOnCloseSaveEl = document.getElementById('quitOnClose');
+    if (quitOnCloseSaveEl) {
+        localStorage.setItem('launcher-quit-on-close', quitOnCloseSaveEl.checked ? 'true' : 'false');
+        if (window.__TAURI__?.core?.invoke) {
+            window.__TAURI__.core.invoke('set_quit_on_close', { enabled: quitOnCloseSaveEl.checked }).catch(function() {});
+        }
     }
 
     // 保存"启动时恢复模型"开关
