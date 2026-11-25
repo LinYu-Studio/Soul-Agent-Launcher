@@ -1033,10 +1033,13 @@ var _envBusy = false;
 async function runEnvCheck() {
     if (_envBusy) return;
     _envBusy = true;
-    await checkEnvComponent('python');
-    await checkEnvComponent('pip');
-    await checkEnvComponent('mscope');
-    await checkEnvComponent('backend');
+    // 4 项并行检测（各自独立子进程/文件检查），总耗时≈最慢的一项而不是求和
+    await Promise.all([
+        checkEnvComponent('python'),
+        checkEnvComponent('pip'),
+        checkEnvComponent('mscope'),
+        checkEnvComponent('backend'),
+    ]);
     _envBusy = false;
 }
 
@@ -1072,8 +1075,9 @@ async function checkEnvComponent(kind) {
             ok = await invoke('check_modelscope_available');
             msg.textContent = ok ? '正常' : '缺失，可一键安装（模型下载的依赖）';
         } else if (kind === 'backend') {
-            var r = await invoke('check_llama_installed');
-            ok = !!(r && r.installed && !r.update_needed);
+            // 用轻量命令：只查文件与上次记录，不触发 nvidia-smi（那是首次进设置卡顿的大头）
+            var r = await invoke('check_backend_status');
+            ok = !!(r && r.installed);
             msg.textContent = ok
                 ? ('正常' + (r.package_key ? '（当前: ' + r.package_key + '）' : ''))
                 : '需要安装或按硬件重装';
@@ -1134,7 +1138,11 @@ function switchPage(pageId) {
         if (pageId === 'chat') { updateLiteInputState(); detectAndShowKbTool(); }
         if (pageId === 'sessions') { loadSessionList(); }
         if (pageId === 'knowledge') { initKnowledgePage(); }
-        if (pageId === 'settings' && !_envChecked) { _envChecked = true; runEnvCheck(); }
+        if (pageId === 'settings' && !_envChecked) {
+            _envChecked = true;
+            // 延迟到页面切换完成后再生效，避免首次进入设置页时同步抢资源造成卡顿
+            setTimeout(function() { runEnvCheck(); }, 300);
+        }
     } else {
         // 默认回到首页
         document.querySelector('.nav-item[data-page="home"]')?.classList.add('active');

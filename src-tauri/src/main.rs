@@ -2371,30 +2371,19 @@ fn find_latest_llama_zip(dir: &std::path::Path, suffix: &str) -> Option<PathBuf>
 #[tauri::command]
 fn check_python_installed() -> bool {
     refresh_python_path();
-    let check = std::process::Command::new("where")
+    // 先做纯文件检查（毫秒级），命中就不用启动 where 进程
+    for root in python_roots() {
+        if root.join("python.exe").exists() { return true; }
+    }
+    if exists_in_path("python") { return true; }
+    // 兜底：where（PATH 里可能是别名/商店版本）
+    std::process::Command::new("where")
         .arg("python")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
-    match check {
-        Ok(status) if status.success() => true,
-        _ => {
-            // 也检查常见路径（用户级安装路径用 LOCALAPPDATA 动态拼接，避免硬编码用户名）
-            let user_python = std::env::var("LOCALAPPDATA").map(|v| {
-                std::path::PathBuf::from(v)
-                    .join("Programs")
-                    .join("Python")
-                    .join("Python311")
-                    .join("python.exe")
-            });
-            let common_paths = [
-                Some(std::path::PathBuf::from("C:\\Python311\\python.exe")),
-                Some(std::path::PathBuf::from("C:\\Program Files\\Python311\\python.exe")),
-                user_python.ok(),
-            ];
-            common_paths.into_iter().flatten().any(|p| p.exists())
-        }
-    }
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// 后台静默安装 Python
@@ -2480,23 +2469,25 @@ fn refresh_python_path() {
 
 #[tauri::command]
 fn check_pip_installed() -> bool {
-    let check = std::process::Command::new("where")
-        .arg("pip")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    match check {
-        Ok(status) if status.success() => true,
-        _ => {
-            // 也检查 pip3
-            let check3 = std::process::Command::new("where")
-                .arg("pip3")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-            check3.map(|s| s.success()).unwrap_or(false)
+    // 纯文件检查优先：Scripts\pip.exe / PATH 中的 pip
+    for root in python_roots() {
+        if root.join("Scripts").join("pip.exe").exists() { return true; }
+    }
+    if exists_in_path("pip") || exists_in_path("pip3") { return true; }
+    // 兜底：where
+    for exe in ["pip", "pip3"] {
+        if std::process::Command::new("where")
+            .arg(exe)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return true;
         }
     }
+    false
 }
 
 #[tauri::command]
@@ -2595,6 +2586,26 @@ fn detect_cpu() -> serde_json::Value {
 
     soul_log("INFO", "cpu", &format!("CPU 检测结果: {:?}", info));
     info
+}
+
+/// 轻量后端状态检查（不触发 GPU/nvidia-smi 探测）：
+/// 设置页的环境检测只需要"是否已安装 + 上次记录的加速端"，没必要每次跑 GPU 检测
+#[tauri::command]
+fn check_backend_status() -> Result<serde_json::Value, String> {
+    let installed = get_install_dir().join("llama-server.exe").exists();
+    let device_path = get_launcher_dir().join("device.json");
+    let (mut package_key, mut backend) = (String::new(), String::new());
+    if let Ok(content) = std::fs::read_to_string(&device_path) {
+        if let Ok(saved) = serde_json::from_str::<serde_json::Value>(&content) {
+            package_key = saved["package_key"].as_str().unwrap_or("").to_string();
+            backend = saved["backend"].as_str().unwrap_or("").to_string();
+        }
+    }
+    Ok(serde_json::json!({
+        "installed": installed,
+        "package_key": package_key,
+        "backend": backend,
+    }))
 }
 
 /// 检查已安装的版本与当前设备是否匹配
@@ -3201,14 +3212,54 @@ fn get_default_official_models() -> Vec<OfficialModel> {
     all
 }
 
+/// 在 PATH 里找可执行文件（纯文件检查，不启动进程——比 where 还快）
+fn exists_in_path(exe: &str) -> bool {
+    let path = std::env::var("PATH").unwrap_or_default();
+    for dir in path.split(';') {
+        let dir = dir.trim();
+        if dir.is_empty() { continue; }
+        let base = std::path::Path::new(dir);
+        if base.join(exe).exists() || base.join(format!("{}.exe", exe)).exists() {
+            return true;
+        }
+    }
+    false
+}
+
+/// 常见的 Python 安装根目录（只返回实际存在的）
+fn python_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        roots.push(std::path::PathBuf::from(local).join("Programs").join("Python").join("Python311"));
+    }
+    roots.push(std::path::PathBuf::from("C:\\Python311"));
+    roots.push(std::path::PathBuf::from("C:\\Program Files\\Python311"));
+    roots.into_iter().filter(|p| p.exists()).collect()
+}
+
 /// 检查 modelscope CLI 是否可用
 #[tauri::command]
 fn check_modelscope_available() -> bool {
     refresh_python_path();
-    let available = new_hidden_cmd("modelscope")
-        .arg("--help")
+    // 快速路径：PATH / Scripts 目录找文件。
+    // 旧实现跑 `modelscope --help` 要启动 Python 解释器 + 导入包（1~3 秒），
+    // 首次进入设置页的卡顿主要来自这里。
+    if exists_in_path("modelscope") {
+        soul_log("DEBUG", "modelscope", "check_modelscope_available → true (PATH)");
+        return true;
+    }
+    for root in python_roots() {
+        if root.join("Scripts").join("modelscope.exe").exists() {
+            soul_log("DEBUG", "modelscope", "check_modelscope_available → true (Scripts)");
+            return true;
+        }
+    }
+    // 兜底：where 只做路径查找，不启动 Python
+    let available = new_hidden_cmd("where")
+        .arg("modelscope")
         .output()
-        .is_ok();
+        .map(|o| o.status.success())
+        .unwrap_or(false);
     soul_log("DEBUG", "modelscope", &format!("check_modelscope_available → {}", available));
     available
 }
@@ -5634,6 +5685,7 @@ fn main() {
             run_setup,
             detect_gpu,
             check_llama_installed,
+            check_backend_status,
             load_config,
             save_config,
             search_models,
