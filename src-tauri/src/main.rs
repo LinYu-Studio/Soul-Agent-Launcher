@@ -303,6 +303,8 @@ fn start_resource_monitor() {
 fn init_soul_logger() {
     // 触发 OnceLock 初始化
     drop(SoulLogger::get().lock());
+    // 每天首次启动清理超过保留期的旧日志（资源快照 2 秒一条，不清理会无限增长）
+    cleanup_old_logs(&SoulLogger::log_dir_path(), 14);
     start_resource_monitor();
     soul_log("INFO", "init", "Soul Agent Launcher 日志系统已初始化");
 }
@@ -365,6 +367,8 @@ fn shutdown_app(app: &tauri::AppHandle) {
 static SERVER_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
 /// 模型/服务自动重启的最大尝试次数，超过则放弃并通知前端
 const MODEL_MAX_RESTARTS: u32 = 3;
+/// 模型稳定运行该秒数后，崩溃计数归零（避免"跨月累计崩 3 次"被永久放弃）
+const CRASH_COUNT_RESET_SECS: u64 = 600;
 
 /// 全局 AppHandle（setup 时写入）：代理线程/监控线程借此访问 Tauri 状态与发事件
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -414,6 +418,9 @@ struct RunningModel {
     /// 意外崩溃次数（自动重启计数）
     #[serde(default)]
     crash_count: u32,
+    /// 进程（最后一次）启动的 Unix 秒：稳定运行一段时间后用于清零 crash_count
+    #[serde(default)]
+    start_epoch: u64,
     /// 多模态投影模型路径（多模态模型启动时随 --mmproj 传入；待机唤醒时原样恢复）
     #[serde(default)]
     mmproj: Option<String>,
@@ -482,6 +489,50 @@ fn local_date_parts(secs: u64) -> (u64, u32, u32) {
 fn local_hms(secs: u64) -> (u32, u32, u32) {
     let rem = (secs + 8 * 3600) % 86400;
     ((rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32)
+}
+
+/// (年, 月, 日) → Unix 天数（days_to_ymd 的逆运算）
+fn ymd_to_days(y: u64, m: u32, d: u32) -> u64 {
+    let mut days = 0u64;
+    for yy in 1970..y {
+        days += if (yy % 4 == 0 && yy % 100 != 0) || yy % 400 == 0 { 366 } else { 365 };
+    }
+    let months_days = [31u64, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    for mi in 0..(m.saturating_sub(1) as usize).min(12) {
+        days += if mi == 1 && leap { 29 } else { months_days[mi] };
+    }
+    days + (d.max(1) as u64 - 1)
+}
+
+/// 日志保留策略：删除超过 keep_days 天的 soul_YYYY-MM-DD.log/.json
+/// （资源快照每 2 秒写一行，不清理的话一年能涨到数 GB）
+fn cleanup_old_logs(dir: &PathBuf, keep_days: u64) {
+    let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let today = (now_secs + 8 * 3600) / 86400; // 与日志文件名（UTC+8 日期）保持一致
+    let rd = match std::fs::read_dir(dir) { Ok(r) => r, Err(_) => return };
+    let mut removed = 0usize;
+    for entry in rd.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("soul_") || !(name.ends_with(".log") || name.ends_with(".json")) {
+            continue;
+        }
+        // soul_2026-11-26.log → 2026-11-26
+        let date_part = &name[5..name.len().saturating_sub(4)];
+        let parts: Vec<&str> = date_part.split('-').collect();
+        if parts.len() != 3 { continue; }
+        let (y, m, d) = match (parts[0].parse::<u64>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
+            (Ok(y), Ok(m), Ok(d)) if m >= 1 && m <= 12 && d >= 1 && d <= 31 => (y, m, d),
+            _ => continue,
+        };
+        let file_day = ymd_to_days(y, m, d);
+        if today > file_day && today - file_day > keep_days {
+            if std::fs::remove_file(entry.path()).is_ok() { removed += 1; }
+        }
+    }
+    if removed > 0 {
+        soul_log("INFO", "log", &format!("已清理 {} 个超过 {} 天的旧日志文件", removed, keep_days));
+    }
 }
 
 fn now_iso() -> String {
@@ -623,6 +674,29 @@ fn start_model(
         }
     }
 
+    // 端口冲突校验：起始端口（代理）与 port+1（llama 推理）都不能被其他模型占用
+    if let Ok(models) = state.models.lock() {
+        if let Some(conflict) = models.iter().find(|m| {
+            m.proxy_port == port || m.llama_port == port
+                || m.proxy_port == llama_port || m.llama_port == llama_port
+        }) {
+            let msg = format!(
+                "端口冲突：起始端口 {} 与模型 '{}'（代理 {} / 推理 {}）重叠，请换一个端口",
+                port, conflict.name, conflict.proxy_port, conflict.llama_port);
+            soul_log("WARN", "model", &msg);
+            return Err(msg);
+        }
+    }
+    // 系统级占用检测：端口已被其它程序监听时直接给出明确报错，
+    // 而不是让 llama-server 静默启动失败后被误判为"连续崩溃"
+    for p in [port, llama_port] {
+        if std::net::TcpListener::bind(("127.0.0.1", p)).is_err() {
+            let msg = format!("端口 {} 已被其他程序占用，请换一个端口", p);
+            soul_log("WARN", "model", &msg);
+            return Err(msg);
+        }
+    }
+
     // 完整性快速复核：与下载记录比体积（不一致仅告警不拦截，用户可能手动替换了文件）
     if let Some(warn) = quick_integrity_check(&model_path) {
         soul_log_detail("WARN", "integrity", "模型体积与下载记录不符", &warn);
@@ -662,6 +736,7 @@ fn start_model(
         status: "running".to_string(),
         persistent: true,
         crash_count: 0,
+        start_epoch: ts,
         mmproj: mmproj_clean,
         last_active: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
     };
@@ -862,6 +937,17 @@ fn monitor_running_models(app_handle: &tauri::AppHandle) -> Result<(), String> {
         let mut dead = Vec::new();
         for m in models.iter_mut() {
             if m.status == "restarting" || m.status == "standby" { continue; }
+            // 稳定运行超过阈值 → 崩溃计数归零（否则跨月累计 3 次会被永久放弃）
+            if m.status == "running" && m.crash_count > 0 {
+                let now_secs = SystemTime::now().duration_since(UNIX_EPOCH)
+                    .unwrap_or_default().as_secs();
+                if now_secs.saturating_sub(m.start_epoch) >= CRASH_COUNT_RESET_SECS {
+                    soul_log("INFO", "monitor", &format!(
+                        "模型 '{}' 已稳定运行 {}s，崩溃计数清零（原 {} 次）",
+                        m.name, CRASH_COUNT_RESET_SECS, m.crash_count));
+                    m.crash_count = 0;
+                }
+            }
             if !is_pid_alive(&m.pid) {
                 m.crash_count += 1;
                 m.status = "restarting".to_string();
@@ -912,6 +998,8 @@ fn monitor_running_models(app_handle: &tauri::AppHandle) -> Result<(), String> {
                         m.pid = new_pid;
                         m.started_at = format_ts(SystemTime::now().duration_since(UNIX_EPOCH)
                             .unwrap_or_default().as_secs());
+                        m.start_epoch = SystemTime::now().duration_since(UNIX_EPOCH)
+                            .unwrap_or_default().as_secs();
                         m.status = "running".to_string();
                         m.crash_count = d.crash_count;
                     }
@@ -2258,6 +2346,7 @@ fn find_latest_llama_zip(dir: &std::path::Path, suffix: &str) -> Option<PathBuf>
 /// 检查 Python 是否已安装（检测 python.exe 是否在 PATH 中）
 #[tauri::command]
 fn check_python_installed() -> bool {
+    refresh_python_path();
     let check = std::process::Command::new("where")
         .arg("python")
         .stdout(std::process::Stdio::null())
@@ -2330,30 +2419,35 @@ fn run_python_installer(path: &std::path::Path) -> Result<String, String> {
     }
 }
 
-/// 安装 Python 后把用户级 Python 目录补进当前进程 PATH。
-/// Windows 不会把新写入的 PATH 广播给已运行进程，不刷新的话
-/// 本次会话里 pip/modelscope 仍会 "not found"，用户要重启应用才生效。
+/// 把 Python 目录补进当前进程 PATH（幂等）。
+/// 适用场景：安装后立即生效；以及"Python 早已装好但不在本进程 PATH"
+/// （Windows 不向已运行进程广播 PATH 变更），否则 pip/modelscope 全找不到。
 fn refresh_python_path() {
-    let local = match std::env::var("LOCALAPPDATA") {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-    let py_root = std::path::PathBuf::from(&local)
-        .join("Programs").join("Python").join("Python311");
-    let extra = [
-        py_root.to_string_lossy().to_string(),
-        py_root.join("Scripts").to_string_lossy().to_string(),
-    ];
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        candidates.push(std::path::PathBuf::from(&local)
+            .join("Programs").join("Python").join("Python311"));
+    }
+    candidates.push(std::path::PathBuf::from("C:\\Python311"));
+    candidates.push(std::path::PathBuf::from("C:\\Program Files\\Python311"));
+
     let current = std::env::var("PATH").unwrap_or_default();
     let lower = current.to_lowercase();
-    let mut missing: Vec<String> = extra.into_iter()
-        .filter(|p| !lower.contains(&p.to_lowercase()))
-        .collect();
-    if missing.is_empty() { return; }
-    missing.push(current);
-    let merged = missing.join(";");
-    std::env::set_var("PATH", &merged);
-    soul_log("INFO", "python", "已将用户级 Python 路径注入当前进程 PATH");
+    let mut additions: Vec<String> = Vec::new();
+    for root in candidates {
+        if !root.exists() { continue; }
+        for dir in [root.clone(), root.join("Scripts")] {
+            if !dir.exists() { continue; }
+            let s = dir.to_string_lossy().to_string();
+            if !lower.contains(&s.to_lowercase()) && !additions.iter().any(|a| a.eq_ignore_ascii_case(&s)) {
+                additions.push(s);
+            }
+        }
+    }
+    if additions.is_empty() { return; }
+    additions.push(current);
+    std::env::set_var("PATH", additions.join(";"));
+    soul_log("INFO", "python", "已将 Python 目录注入当前进程 PATH");
 }
 
 // ============================================================
@@ -2383,6 +2477,7 @@ fn check_pip_installed() -> bool {
 
 #[tauri::command]
 fn install_pip() -> Result<String, String> {
+    refresh_python_path();
     soul_log("INFO", "pip", "开始安装 pip...");
 
     // 使用 Python 的 ensurepip 模块安装 pip
@@ -3085,6 +3180,7 @@ fn get_default_official_models() -> Vec<OfficialModel> {
 /// 检查 modelscope CLI 是否可用
 #[tauri::command]
 fn check_modelscope_available() -> bool {
+    refresh_python_path();
     let available = new_hidden_cmd("modelscope")
         .arg("--help")
         .output()
@@ -3114,6 +3210,7 @@ fn check_disk_space(path: String) -> Result<u64, String> {
 /// 自动安装 modelscope SDK（静默安装，发射进度事件）
 #[tauri::command]
 async fn install_modelscope(app_handle: tauri::AppHandle) -> Result<String, String> {
+    refresh_python_path();
     soul_log("INFO", "modelscope", "install_modelscope 开始");
     // 先检查是否已安装
     if check_modelscope_available() {
@@ -5278,6 +5375,8 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             init_soul_logger();
+            // 启动即把 Python 目录注入 PATH（用户可能早就装好 Python 但没进 PATH）
+            refresh_python_path();
             soul_log("INFO", "main", "应用程序启动 (setup 开始)");
             let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let log_item = MenuItemBuilder::with_id("logs", "查看日志").build(app)?;

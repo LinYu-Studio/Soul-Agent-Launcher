@@ -1242,7 +1242,7 @@ async function pollServerStatus() {
             } else {
                 var html = '<div style="margin-bottom:4px;">多模型端点：</div>';
                 models.forEach(function(m) {
-                    html += '<div style="font-size:10px;margin-bottom:2px;">[' + m.name + '] 原生 → <code>http://localhost:' + m.proxy_port + '/chat</code> · OpenAI → <code>http://localhost:' + m.proxy_port + '/v1/chat/completions</code></div>';
+                    html += '<div style="font-size:10px;margin-bottom:2px;">[' + escapeHtml(m.name) + '] 原生 → <code>http://localhost:' + m.proxy_port + '/chat</code> · OpenAI → <code>http://localhost:' + m.proxy_port + '/v1/chat/completions</code></div>';
                 });
                 apiUrl.innerHTML = html;
             }
@@ -1425,7 +1425,7 @@ async function showBenchModelList() {
             html += '<label class="win11-check-item" onclick="pickBenchModel(this,\'local\',' + i + ')">' +
                 '<input type="radio" name="benchModel">' +
                 '<span class="win11-check-fake"></span>' +
-                '<span class="win11-check-label">' + m.name + '</span>' +
+                '<span class="win11-check-label">' + escapeHtml(m.name) + '</span>' +
                 '<span class="win11-check-size">' + (m.size || '') + '</span></label>';
         });
         html += '</div>';
@@ -2299,7 +2299,7 @@ async function showQuickStart() {
                 return '<label class="win11-check-item">' +
                     '<input type="checkbox" value="' + m.path.replace(/"/g,'&quot;') + '" data-name="' + m.name.replace(/"/g,'&quot;') + '" data-idx="' + i + '">' +
                     '<span class="win11-check-fake"></span>' +
-                    '<span class="win11-check-label">' + m.name + '</span>' +
+                    '<span class="win11-check-label">' + escapeHtml(m.name) + '</span>' +
                     '<span class="win11-check-size">' + (m.size || '') + '</span>' +
                     '</label>';
             }).join('');
@@ -2417,7 +2417,7 @@ function refreshLaunchModelList() {
                 return '<label class="win11-check-item">' +
                     '<input type="checkbox" value="' + m.path.replace(/"/g,'&quot;') + '" data-name="' + m.name.replace(/"/g,'&quot;') + '">' +
                     '<span class="win11-check-fake"></span>' +
-                    '<span class="win11-check-label">' + m.name + '</span>' +
+                    '<span class="win11-check-label">' + escapeHtml(m.name) + '</span>' +
                     '<span class="win11-check-size">' + m.size + '</span>' +
                     '</label>';
             }).join('');
@@ -2649,26 +2649,49 @@ function renderHubCards(models) {
         const modelId = m.id || `${m.owner}/${m.name}`;
         const shortId = modelId.length > 45 ? modelId.substring(0, 42) + '...' : modelId;
         const desc = m.description || '(暂无描述)';
+        // 远程数据一律转义；按钮用 data-* 传递，不再拼进 onclick（防止属性/JS 注入）
+        const safeId = escapeHtml(modelId);
         return `
             <div class="hub-card">
-                <div class="hub-card-name" title="${modelId}">${m.name || shortId}</div>
-                <div class="hub-card-owner">${m.owner} · ${m.task || '通用'}</div>
-                <div class="hub-card-desc">${desc}</div>
+                <div class="hub-card-name" title="${safeId}">${escapeHtml(m.name || shortId)}</div>
+                <div class="hub-card-owner">${escapeHtml(m.owner)} · ${escapeHtml(m.task || '通用')}</div>
+                <div class="hub-card-desc">${escapeHtml(desc)}</div>
                 <div class="hub-card-meta">
-                    <span><svg class="svg-icon" style="width:14px;height:14px;vertical-align:text-bottom;margin-right:2px;display:inline"><use href="#icon-download"/></svg> ${fmtCount(m.downloads)}</span>
-                    <span><svg class="svg-icon" style="width:14px;height:14px;vertical-align:text-bottom;margin-right:2px;display:inline"><use href="#icon-calendar"/></svg> ${m.updated ? m.updated.substring(0, 10) : '-'}</span>
+                    <span><svg class="svg-icon" style="width:14px;height:14px;vertical-align:text-bottom;margin-right:2px;display:inline"><use href="#icon-download"/></svg> ${escapeHtml(fmtCount(m.downloads))}</span>
+                    <span><svg class="svg-icon" style="width:14px;height:14px;vertical-align:text-bottom;margin-right:2px;display:inline"><use href="#icon-calendar"/></svg> ${escapeHtml(m.updated ? m.updated.substring(0, 10) : '-')}</span>
                 </div>
                 <div class="hub-card-actions">
-                    <button class="btn btn-accent" onclick="downloadFromHub('${modelId}')">下载</button>
-                    <button class="btn" onclick="openModelLink('${modelId}')">详情</button>
+                    <button class="btn btn-accent" data-hub-action="download" data-model-id="${safeId}">下载</button>
+                    <button class="btn" data-hub-action="open" data-model-id="${safeId}">详情</button>
                 </div>
             </div>
         `;
     }).join('');
+
+    // 事件委托：按钮数据只作为纯文本读取，不参与任何代码拼接
+    grid.querySelectorAll('[data-hub-action]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var id = btn.getAttribute('data-model-id') || '';
+            if (btn.getAttribute('data-hub-action') === 'download') {
+                downloadFromHub(id);
+            } else {
+                openModelLink(id);
+            }
+        });
+    });
 }
 
-function fmtCount(n) {
-    if (n >= 10000) return (n / 10000).toFixed(1) + 'w';
+/// HTML 转义：所有来自远程（ModelScope）或文件系统的字符串进 innerHTML 前必须过一遍
+function escapeHtml(s) {
+    return String(s === null || s === undefined ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function fmtCount(n) {    if (n >= 10000) return (n / 10000).toFixed(1) + 'w';
     if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
     return String(n);
 }
@@ -3495,7 +3518,7 @@ async function loadOfficialModels() {
             <div class="official-category">
                 <div class="official-category-title" onclick="toggleCategory('${catId}')">
                     <span class="oc-arrow" id="${catId}-arrow">▶</span>
-                    ${catName}
+                    ${escapeHtml(catName)}
                     <span class="oc-count">${totalModels} 个模型</span>
                 </div>
                 <div class="oc-body" id="${catId}">
@@ -3505,7 +3528,7 @@ async function loadOfficialModels() {
                         <div class="official-group">
                             <div class="official-group-title" onclick="toggleOfficialGroup('${groupId}')">
                                 <span class="og-arrow" id="${groupId}-arrow">▶</span>
-                                ${family} 系列
+                                ${escapeHtml(family)} 系列
                                 <span class="og-count">${items.length} 个模型</span>
                             </div>
                             <div class="og-body" id="${groupId}">
@@ -3520,16 +3543,16 @@ async function loadOfficialModels() {
                                         const isDefault = q === defaultQuant;
                                         const label = isDefault ? `${q}（推荐）` : q;
                                         const active = isDefault ? ' active' : '';
-                                        return `<span class="quant-chip${active}" data-model="${m._idx}" data-quant="${q}" onclick="selectOfficialQuant(this)">${label}</span>`;
+                                        return `<span class="quant-chip${active}" data-model="${m._idx}" data-quant="${escapeHtml(q)}" onclick="selectOfficialQuant(this)">${escapeHtml(label)}</span>`;
                                     }).join('');
                                     const meta = [m.size, m.model_id].filter(Boolean).join(' · ');
                                     return `
                                     <div class="official-model-card">
                                         <div class="official-model-info">
-                                            <div class="official-model-name">${m.name}</div>
-                                            <div class="official-model-meta">${meta}</div>
+                                            <div class="official-model-name">${escapeHtml(m.name)}</div>
+                                            <div class="official-model-meta">${escapeHtml(meta)}</div>
                                             ${quants ? `<div class="official-model-quant">${quants}</div>` : ''}
-                                            ${m.desc ? `<div class="official-model-desc">${m.desc}</div>` : ''}
+                                            ${m.desc ? `<div class="official-model-desc">${escapeHtml(m.desc)}</div>` : ''}
                                         </div>
                                         <button class="btn btn-accent" onclick="downloadOfficialModel(${m._idx})">下载</button>
                                     </div>`;
@@ -3542,7 +3565,7 @@ async function loadOfficialModels() {
         }).join('');
 
     } catch (e) {
-        list.innerHTML = `<div class="official-loading" style="color:var(--danger)">加载失败: ${e}</div>`;
+        list.innerHTML = `<div class="official-loading" style="color:var(--danger)">加载失败: ${escapeHtml(e)}</div>`;
     }
 }
 
