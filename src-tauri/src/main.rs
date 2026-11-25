@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -310,6 +310,10 @@ fn init_soul_logger() {
 }
 
 /// 服务状态：单服务器进程 + 代理 + 待机
+///
+/// ⚠️ 旧单服务器模式（LEGACY）：仅服务于「启动页」的单服务流程。
+/// 多模型流程请使用 RunningModelsState + STANDBY_REGISTRY（新待机引擎），
+/// 两套状态互不共享——改动待机/代理逻辑时务必确认改的是哪一条链路。
 struct ServerState {
     server: Mutex<Option<std::process::Child>>,
     proxy_running: Mutex<bool>,
@@ -369,6 +373,24 @@ static SERVER_CRASH_COUNT: AtomicU32 = AtomicU32::new(0);
 const MODEL_MAX_RESTARTS: u32 = 3;
 /// 模型稳定运行该秒数后，崩溃计数归零（避免"跨月累计崩 3 次"被永久放弃）
 const CRASH_COUNT_RESET_SECS: u64 = 600;
+
+/// 代理并发连接上限：每连接一个线程，超出直接回 503，防止线程被耗尽
+const PROXY_MAX_CONCURRENT: usize = 64;
+static PROXY_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+
+/// 并发计数守卫：线程退出（含 panic）时自动减一
+struct ProxySlotGuard;
+impl Drop for ProxySlotGuard {
+    fn drop(&mut self) {
+        PROXY_ACTIVE.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// 在 haystack 中查找 needle 首次出现的位置
+fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() { return None; }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
 
 /// 全局 AppHandle（setup 时写入）：代理线程/监控线程借此访问 Tauri 状态与发事件
 static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
@@ -1272,6 +1294,8 @@ fn get_model_llama_port(model_name: String, state: State<RunningModelsState>) ->
 }
 
 /// 启动服务器（启动 llama-server + 代理，支持待机模式）
+///
+/// LEGACY：单服务器模式入口。新功能请走多模型链路（start_model / sleep_model / wake_model）。
 #[tauri::command]
 fn start_server(
     app_handle: tauri::AppHandle,
@@ -3555,9 +3579,18 @@ async fn start_model_download(
             }
 
             soul_log("INFO", "download", &format!("非 GGUF 模型下载完成，总大小: {}MB", total_size / 1024 / 1024));
+            // 非 GGUF（如 FP16 多文件权重）同样写入 hash manifest，供启动时体积复核
+            let mut hashed = 0usize;
+            for f in &any_files {
+                let fsize = f.metadata().map(|m| m.len()).unwrap_or(0);
+                match sha256_file(f) {
+                    Ok(h) => { record_model_hash(f, &h, fsize); hashed += 1; }
+                    Err(e) => soul_log("WARN", "download", &format!("{} 计算 SHA256 失败: {}", f.display(), e)),
+                }
+            }
             let _ = app_clone.emit("download-progress", serde_json::json!({
                 "progress": 100,
-                "message": format!("{} 下载完成！共 {} 个文件", model_clone, any_files.len()),
+                "message": format!("{} 下载完成！共 {} 个文件（{} 个已记录校验值）", model_clone, any_files.len(), hashed),
                 "status": "completed",
             }));
             return;
@@ -3800,8 +3833,17 @@ fn proxy_loop(public_port: u16, llama_port: u16, model_name: &str) {
     for stream in listener.incoming() {
         match stream {
             Ok(mut client) => {
+                // 并发上限：超出直接 503，避免恶意/误发连接把线程耗光
+                if PROXY_ACTIVE.load(Ordering::SeqCst) >= PROXY_MAX_CONCURRENT {
+                    soul_log("WARN", "proxy", &format!("并发连接已达上限 {}，拒绝新请求", PROXY_MAX_CONCURRENT));
+                    let _ = client.write_all(b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    let _ = client.flush();
+                    continue;
+                }
+                PROXY_ACTIVE.fetch_add(1, Ordering::SeqCst);
                 let m = model.clone();
                 std::thread::spawn(move || {
+                    let _slot = ProxySlotGuard; // 线程结束/panic 时自动释放计数
                     handle_proxy_connection(&mut client, &m, public_port, llama_port);
                 });
             }
@@ -3967,28 +4009,29 @@ fn convert_chat_to_native(
 fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _own_port: u16, own_llama_port: u16) {
     soul_log("DEBUG", "proxy", &format!("handle_proxy_connection model='{}'", model_name));
     // 1. 读请求头（到 \r\n\r\n）
-    //    30 秒收不满即放弃：客户端连上不发数据的连接不释放会导致线程永久堆积（线程泄漏根源）
-    //    WouldBlock 需重试而非断开（Windows 上 accept 的连接会继承监听 socket 的非阻塞模式）
-    let mut buf = Vec::new();
+    //    用 8KB 分块读取（原先逐字节 read 会产生大量 syscall）；多余的字节留给 body 使用
+    //    30 秒收不满 / 超过 64KB 即放弃：防慢连接与超大 header 占死线程
+    let mut buf: Vec<u8> = Vec::with_capacity(8192);
     let mut header_end = None;
+    let mut chunk = [0u8; 8192];
     let header_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let mut byte = [0u8; 1];
-        match client.read(&mut byte) {
+        if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
+            header_end = Some(pos + 4);
+            break;
+        }
+        if buf.len() > 64 * 1024 {
+            soul_log("WARN", "proxy", "请求头超过 64KB，断开");
+            return;
+        }
+        if std::time::Instant::now() >= header_deadline {
+            soul_log("DEBUG", "proxy", "请求头 30 秒未收齐，断开（防泄漏）");
+            return;
+        }
+        match client.read(&mut chunk) {
             Ok(0) => break,
-            Ok(_) => {
-                buf.push(byte[0]);
-                let len = buf.len();
-                if len >= 4 && buf[len-4..] == [b'\r', b'\n', b'\r', b'\n'] {
-                    header_end = Some(len);
-                    break;
-                }
-            }
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if std::time::Instant::now() >= header_deadline {
-                    soul_log("DEBUG", "proxy", "请求头 30 秒未收齐，断开（防泄漏）");
-                    return;
-                }
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
             Err(_) => break,
@@ -4084,6 +4127,10 @@ fn handle_proxy_connection(client: &mut std::net::TcpStream, model_name: &str, _
             }
             body.extend_from_slice(&body_buf[..total]);
         }
+    }
+    // 分块读取可能把 header 之后的额外字节一起读进来，按 Content-Length 截断
+    if content_length > 0 && body.len() > content_length {
+        body.truncate(content_length);
     }
 
     // 3. 模型路由：检查 body 中的 model 字段，路由到对应端口（并记录目标模型名，供待机自动唤醒）
@@ -4861,6 +4908,45 @@ fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 清理更新流程遗留的临时文件（旧 MSI / .part / .part.etag / 安装批处理）。
+/// older_than_secs 用于避免误删正在进行的下载；返回 (释放字节数, 删除个数)。
+fn cleanup_update_temp(older_than_secs: u64) -> (u64, usize) {
+    let dir = std::env::temp_dir();
+    let names = [
+        "Soul-Agent-Launcher-update.msi",
+        "Soul-Agent-Launcher-update.msi.part",
+        "Soul-Agent-Launcher-update.msi.part.etag",
+        "SAL_update_install.cmd",
+    ];
+    let now = SystemTime::now();
+    let mut freed = 0u64;
+    let mut count = 0usize;
+    for name in names {
+        let path = dir.join(name);
+        let meta = match std::fs::metadata(&path) { Ok(m) => m, Err(_) => continue };
+        let age = meta.modified().ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(u64::MAX);
+        if age >= older_than_secs {
+            let size = meta.len();
+            if std::fs::remove_file(&path).is_ok() {
+                freed += size;
+                count += 1;
+            }
+        }
+    }
+    (freed, count)
+}
+
+/// 手动清理临时文件（设置页按钮）
+#[tauri::command]
+fn cleanup_temp_files() -> Result<serde_json::Value, String> {
+    let (freed, count) = cleanup_update_temp(0);
+    soul_log("INFO", "main", &format!("手动清理临时文件: {} 个，释放 {} 字节", count, freed));
+    Ok(serde_json::json!({ "count": count, "freed_bytes": freed }))
+}
+
 /// 下载校验通过后记录单文件 hash（持全局锁串行化读改写）
 fn record_model_hash(path: &std::path::Path, sha256: &str, size: u64) {
     let key = path.to_string_lossy().to_string();
@@ -5101,14 +5187,20 @@ fn generate_id() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
         .as_secs();
-    format!("s{:x}{:04x}", secs, rand_4hex())
+    // 保留秒级前缀（会话列表按 id 倒序≈创建时间序），随机部分提升到 64 位，
+    // 同秒并发碰撞概率从 1/65536 降到 1/2^64
+    format!("s{:x}{:016x}", secs, rand_u64())
 }
 
-fn rand_4hex() -> u16 {
-    // Simple non-cryptographic random
-    (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
-        .as_nanos() & 0xFFFF) as u16
+/// 进程内高熵随机数：RandomState 的 key 由系统随机种子生成，逐次调用不同
+fn rand_u64() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+    h.write_u32(std::process::id());
+    h.finish()
 }
 
 fn now_str() -> String {
@@ -5377,6 +5469,11 @@ fn main() {
             init_soul_logger();
             // 启动即把 Python 目录注入 PATH（用户可能早就装好 Python 但没进 PATH）
             refresh_python_path();
+            // 清理 6 小时前的更新残留（正在下载的文件不受影响）
+            let (freed, removed) = cleanup_update_temp(6 * 3600);
+            if removed > 0 {
+                soul_log("INFO", "main", &format!("启动清理更新临时文件 {} 个，释放 {} 字节", removed, freed));
+            }
             soul_log("INFO", "main", "应用程序启动 (setup 开始)");
             let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let log_item = MenuItemBuilder::with_id("logs", "查看日志").build(app)?;
@@ -5512,6 +5609,7 @@ fn main() {
             set_auto_launch,
             close_app,
             set_quit_on_close,
+            cleanup_temp_files,
             download_update,
             install_update,
             search_sessions,

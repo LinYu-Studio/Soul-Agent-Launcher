@@ -62,7 +62,7 @@
         <div class="setup-box">
             <img src="assets/thinker-icon.png" width="48" height="48" class="setup-logo">
             <h1 class="setup-title">Soul Agent Launcher</h1>
-            <p class="setup-subtitle" id="setupSubtitle">正在完成首次配置...</p>
+            <p class="setup-subtitle" id="setupSubtitle" data-i18n="ui.001">正在完成首次配置...</p>
 
             <!-- 步骤进度列表 -->
             <div class="setup-steps" id="setupSteps">
@@ -74,11 +74,11 @@
                 <div class="setup-error-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFB74D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 </div>
-                <div class="setup-error-title" id="setupErrorTitle">出错了</div>
+                <div class="setup-error-title" id="setupErrorTitle" data-i18n="ui.002">出错了</div>
                 <div class="setup-error-msg" id="setupErrorMsg"></div>
                 <div class="setup-error-actions" id="setupErrorActions">
-                    <button class="btn" id="setupErrorSkipBtn" onclick="skipCurrentStep()">跳过</button>
-                    <button class="btn btn-accent" id="setupErrorRetryBtn" onclick="retryCurrentStep()">重试</button>
+                    <button class="btn" id="setupErrorSkipBtn" onclick="skipCurrentStep()" data-i18n="ui.003">跳过</button>
+                    <button class="btn btn-accent" id="setupErrorRetryBtn" onclick="retryCurrentStep()" data-i18n="ui.004">重试</button>
                 </div>
             </div>
 
@@ -87,19 +87,19 @@
                 <div class="setup-error-icon">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#E57373" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                 </div>
-                <div class="setup-error-title">关键错误</div>
-                <div class="setup-error-msg" id="setupReportMsg">硬件检测完全失败，无法继续。</div>
+                <div class="setup-error-title" data-i18n="ui.005">关键错误</div>
+                <div class="setup-error-msg" id="setupReportMsg" data-i18n="ui.006">硬件检测完全失败，无法继续。</div>
                 <textarea class="setup-report-detail" id="setupReportDetail" readonly rows="6"></textarea>
                 <div class="setup-error-actions">
-                    <button class="btn" onclick="copyErrorReport()">复制报告</button>
-                    <button class="btn btn-accent" onclick="openFeedback()">提交反馈</button>
-                    <button class="btn btn-danger" onclick="closeApp()">退出应用</button>
+                    <button class="btn" onclick="copyErrorReport()" data-i18n="ui.007">复制报告</button>
+                    <button class="btn btn-accent" onclick="openFeedback()" data-i18n="ui.008">提交反馈</button>
+                    <button class="btn btn-danger" onclick="closeApp()" data-i18n="ui.009">退出应用</button>
                 </div>
             </div>
 
             <div class="setup-status hidden" id="setupStatus">
                 <div class="setup-spinner"></div>
-                <span id="setupMessage">正在检测系统环境...</span>
+                <span id="setupMessage" data-i18n="ui.010">正在检测系统环境...</span>
             </div>
         </div>
     </div>
@@ -108,8 +108,8 @@
     <div class="mode-overlay hidden" id="modeOverlay">
         <div class="mode-box">
             <div class="mode-header">
-                <h2>欢迎使用 Soul Agent Launcher</h2>
-                <p>请选择您的使用模式</p>
+                <h2 data-i18n="ui.011">欢迎使用 Soul Agent Launcher</h2>
+                <p data-i18n="ui.012">请选择您的使用模式</p>
             </div>
             <div class="mode-options">
                 <div class="mode-card" id="modeDev" onclick="selectMode('dev')">
@@ -119,7 +119,7 @@
                         </svg>
                     </div>
                     <div class="mode-card-title" data-i18n="mode.dev">我是开发者</div>
-                    <div class="mode-card-desc">无需本地部署AI教学，自由探索SAL</div>
+                    <div class="mode-card-desc" data-i18n="ui.013">无需本地部署AI教学，自由探索SAL</div>
                 </div>
                 <div class="mode-card" id="modeNewbie" onclick="selectMode('newbie')">
                     <div class="mode-card-icon">
@@ -128,13 +128,13 @@
                         </svg>
                     </div>
                     <div class="mode-card-title" data-i18n="mode.newbie">我是新手</div>
-                    <div class="mode-card-desc">无AI部署经验，最少3步快速部署本地AI</div>
+                    <div class="mode-card-desc" data-i18n="ui.014">无AI部署经验，最少3步快速部署本地AI</div>
                 </div>
             </div>
-            <button class="mode-confirm-btn" onclick="confirmMode()">确认</button>
+            <button class="mode-confirm-btn" onclick="confirmMode()" data-i18n="ui.015">确认</button>
             <label class="mode-remember">
                 <input type="checkbox" id="modeDontAsk">
-                <span>不再提示</span>
+                <span data-i18n="ui.016">不再提示</span>
             </label>
         </div>
     </div>
@@ -146,7 +146,7 @@
             <div id="deployScanPhase">
                 <div class="deploy-header">
                     <h2 data-i18n="home.deploy">一键自动部署</h2>
-                    <p>正在扫描您的硬件以匹配最佳模型</p>
+                    <p data-i18n="ui.017">正在扫描您的硬件以匹配最佳模型</p>
                 </div>
                 <div class="scan-ring-container" id="deployScanContainer">
                     <svg class="scan-ring" id="deployScanRing" viewBox="0 0 48 48">
@@ -157,22 +157,22 @@
                         <circle cx="24" cy="24" r="20" fill="none" stroke="#4CAF50" stroke-width="3"/>
                         <polyline points="14,24 21,31 34,18" fill="none" stroke="#4CAF50" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="30" stroke-dashoffset="30"/>
                     </svg>
-                    <div class="scan-ring-label" id="deployScanStatus">检测中...</div>
+                    <div class="scan-ring-label" id="deployScanStatus" data-i18n="ui.018">检测中...</div>
                 </div>
             </div>
 
             <!-- 推荐阶段 -->
             <div id="deployRecPhase" class="hidden">
                 <div class="deploy-header">
-                    <h2>为您推荐以下模型</h2>
-                    <p id="deployRecDesc">根据您的硬件配置，推荐最适合的模型</p>
+                    <h2 data-i18n="ui.019">为您推荐以下模型</h2>
+                    <p id="deployRecDesc" data-i18n="ui.020">根据您的硬件配置，推荐最适合的模型</p>
                 </div>
                 <div class="rec-cards" id="deployRecCards">
                     <!-- 由 JS 动态渲染 -->
                 </div>
                 <div class="rec-actions">
-                    <button class="mode-cancel-btn" onclick="cancelAutoDeploy()">取消</button>
-                    <button class="mode-confirm-btn" onclick="confirmAutoDeploy()">确定</button>
+                    <button class="mode-cancel-btn" onclick="cancelAutoDeploy()" data-i18n="ui.021">取消</button>
+                    <button class="mode-confirm-btn" onclick="confirmAutoDeploy()" data-i18n="ui.022">确定</button>
                 </div>
             </div>
         </div>
@@ -181,7 +181,7 @@
     <!-- Title Bar -->
     <div class="title-bar">
         <span class="title-text">Soul Agent Launcher</span>
-        <span class="title-subtitle" id="serverStatusBadge">● 已断开</span>
+        <span class="title-subtitle" id="serverStatusBadge" data-i18n="ui.023">● 已断开</span>
         <div class="window-controls">
             <button class="window-btn" onclick="minimizeWindow()" title="最小化">
                 <svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5" width="8" height="2" fill="currentColor"/></svg>
@@ -244,8 +244,8 @@
         <div class="content">
             <!-- ===== 首页 ===== -->
             <div class="page active" id="page-home">
-                <h2 class="page-title">欢迎使用 Soul Agent Launcher</h2>
-                <p class="page-desc">管理您的本地 AI 模型服务和启动器。</p>
+                <h2 class="page-title" data-i18n="ui.011">欢迎使用 Soul Agent Launcher</h2>
+                <p class="page-desc" data-i18n="ui.024">管理您的本地 AI 模型服务和启动器。</p>
 
                 <div class="card-grid">
                     <div class="card" id="statusCard">
@@ -262,15 +262,15 @@
                         </div>
                         <div class="card-body" style="text-align:center;padding:24px 0;">
                             <div class="status-dot" id="homeStatusDot">●</div>
-                            <div class="status-label" id="homeStatusLabel">检测中...</div>
+                            <div class="status-label" id="homeStatusLabel" data-i18n="ui.018">检测中...</div>
                             <div class="status-detail" id="homeStatusDetail">Port: 20000</div>
                             <div class="api-endpoint" id="homeApiEndpoint" style="display:none;margin-top:10px;font-size:11px;background:var(--bg-primary);padding:8px 12px;border-radius:6px;border:1px solid var(--border-subtle);word-break:break-all;">
-                                <span style="color:var(--text-tertiary)">双端点 API:</span><br>
+                                <span style="color:var(--text-tertiary)" data-i18n="ui.025">双端点 API:</span><br>
                                 <code id="homeApiUrl" style="color:var(--accent);font-size:11px;"></code>
                             </div>
                             <div class="card-actions" style="margin-top:16px;">
-                                <button class="btn btn-accent" id="homeStartBtn" onclick="showQuickStart()">启动服务</button>
-                                <button class="btn btn-danger" id="homeStopBtn" onclick="stopServer()" style="display:none;">停止服务</button>
+                                <button class="btn btn-accent" id="homeStartBtn" onclick="showQuickStart()" data-i18n="ui.026">启动服务</button>
+                                <button class="btn btn-danger" id="homeStopBtn" onclick="stopServer()" style="display:none;" data-i18n="ui.027">停止服务</button>
                             </div>
                         </div>
                     </div>
@@ -286,10 +286,10 @@
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--accent);">●</div>
-                            <div class="status-label" style="color:var(--accent);">就绪</div>
-                            <div class="status-detail">自动检测硬件，推荐最佳模型</div>
+                            <div class="status-label" style="color:var(--accent);" data-i18n="ui.028">就绪</div>
+                            <div class="status-detail" data-i18n="ui.029">自动检测硬件，推荐最佳模型</div>
                             <div class="card-actions" style="margin-top:16px;">
-                                <button class="btn btn-accent" onclick="event.stopPropagation();startAutoDeploy()">一键部署</button>
+                                <button class="btn btn-accent" onclick="event.stopPropagation();startAutoDeploy()" data-i18n="ui.030">一键部署</button>
                             </div>
                         </div>
                     </div>
@@ -305,12 +305,12 @@
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--text-tertiary);">●</div>
-                            <div class="status-label" style="color:var(--text-tertiary);">未测试</div>
-                            <div class="status-detail">评估本地硬件 AI 推理性能</div>
+                            <div class="status-label" style="color:var(--text-tertiary);" data-i18n="ui.031">未测试</div>
+                            <div class="status-detail" data-i18n="ui.032">评估本地硬件 AI 推理性能</div>
                             <div class="card-actions" style="margin-top:16px;">
-                                <button class="btn btn-accent" onclick="event.stopPropagation();showBenchMode()">开始跑分</button>
-                                <button class="btn btn-sm" onclick="event.stopPropagation();showBenchHistory()" style="font-size:11px;padding:4px 10px;">历史</button>
-                                <button class="btn btn-sm" onclick="event.stopPropagation();feedbackBenchmark()" style="font-size:11px;padding:4px 10px;">反馈</button>
+                                <button class="btn btn-accent" onclick="event.stopPropagation();showBenchMode()" data-i18n="ui.033">开始跑分</button>
+                                <button class="btn btn-sm" onclick="event.stopPropagation();showBenchHistory()" style="font-size:11px;padding:4px 10px;" data-i18n="ui.034">历史</button>
+                                <button class="btn btn-sm" onclick="event.stopPropagation();feedbackBenchmark()" style="font-size:11px;padding:4px 10px;" data-i18n="ui.035">反馈</button>
                             </div>
                         </div>
                     </div>
@@ -323,23 +323,23 @@
                         <div class="quick-guide">
                             <div class="guide-step">
                                 <span class="step-num">1</span>
-                                <span>设置路径（在设置中配置，首次自动完成）</span>
+                                <span data-i18n="ui.036">设置路径（在设置中配置，首次自动完成）</span>
                             </div>
                             <div class="guide-step">
                                 <span class="step-num">2</span>
-                                <span>下载或添加 GGUF 模型到模型目录</span>
+                                <span data-i18n="ui.037">下载或添加 GGUF 模型到模型目录</span>
                             </div>
                             <div class="guide-step">
                                 <span class="step-num">3</span>
-                                <span>在「启动服务」选择模型并一键启动</span>
+                                <span data-i18n="ui.038">在「启动服务」选择模型并一键启动</span>
                             </div>
                             <div class="guide-step">
                                 <span class="step-num">4</span>
-                                <span>双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
+                                <span data-i18n="ui.039">双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
                             </div>
                             <div class="guide-step">
                                 <span class="step-num">5</span>
-                                <span>Soul Agent 及其他 OpenAI 客户端可直接连接</span>
+                                <span data-i18n="ui.040">Soul Agent 及其他 OpenAI 客户端可直接连接</span>
                             </div>
                         </div>
                     </div>
@@ -355,10 +355,10 @@
                         </div>
                         <div class="card-body" style="text-align:center;padding:18px 0 24px;">
                             <div class="status-dot" style="color:var(--accent);">●</div>
-                            <div class="status-label" style="color:var(--accent);">点击查看</div>
-                            <div class="status-detail">了解 SAL 的完整使用方法</div>
+                            <div class="status-label" style="color:var(--accent);" data-i18n="ui.041">点击查看</div>
+                            <div class="status-detail" data-i18n="ui.042">了解 SAL 的完整使用方法</div>
                             <div class="card-actions" style="margin-top:16px;">
-                                <button class="btn btn-accent" onclick="event.stopPropagation();showTutorial()">查看教程</button>
+                                <button class="btn btn-accent" onclick="event.stopPropagation();showTutorial()" data-i18n="ui.043">查看教程</button>
                             </div>
                         </div>
                     </div>
@@ -368,18 +368,18 @@
             <!-- ===== 模型页 ===== -->
             <div class="page" id="page-models">
                 <div class="page-header-actions">
-                    <h2 class="page-title">模型管理</h2>
+                    <h2 class="page-title" data-i18n="ui.044">模型管理</h2>
                     <div style="display:flex;gap:8px;">
-                        <button class="btn btn-accent" onclick="refreshModels()">刷新</button>
-                        <button class="btn btn-import" onclick="importModel()">导入</button>
+                        <button class="btn btn-accent" onclick="refreshModels()" data-i18n="ui.045">刷新</button>
+                        <button class="btn btn-import" onclick="importModel()" data-i18n="ui.046">导入</button>
                     </div>
                 </div>
-                <p class="page-desc">管理本地模型或从魔搭社区搜索下载。</p>
+                <p class="page-desc" data-i18n="ui.047">管理本地模型或从魔搭社区搜索下载。</p>
 
                 <!-- Tabs -->
                 <div class="tab-bar">
-                    <button class="tab-btn active" onclick="switchModelTab('local')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-folder"/></svg> 本地模型</button>
-                    <button class="tab-btn" onclick="switchModelTab('hub')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-globe"/></svg> 魔搭社区</button>
+                    <button class="tab-btn active" onclick="switchModelTab('local')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-folder"/></svg> <span data-i18n="ui.175">本地模型</span></button>
+                    <button class="tab-btn" onclick="switchModelTab('hub')"><svg class="svg-icon" style="width:16px;height:16px"><use href="#icon-globe"/></svg> <span data-i18n="ui.176">魔搭社区</span></button>
                     <button class="tab-btn" onclick="switchModelTab('official')">
                         <img src="assets/thinker-icon.png" width="14" height="14" style="border-radius:3px;vertical-align:middle;margin-right:4px;">
                         Soul Agent Launcher 官方模型
@@ -399,9 +399,9 @@
                 <div class="tab-content" id="tab-hub">
                     <div class="hub-search">
                         <input type="text" id="hubSearchInput" class="hub-search-input"
-                            placeholder="搜索 GGUF 模型（如 Qwen、DeepSeek、Llama）"
+                            placeholder="搜索 GGUF 模型（如 Qwen、DeepSeek、Llama）" data-i18n-placeholder="ph.1"
                             onkeydown="if(event.key==='Enter') searchHubModels()">
-                        <button class="btn btn-accent" onclick="searchHubModels()">搜索</button>
+                        <button class="btn btn-accent" onclick="searchHubModels()" data-i18n="ui.048">搜索</button>
                     </div>
 
                     <div id="hubFilterRow" class="hub-filter-row">
@@ -414,7 +414,7 @@
                     </div>
 
                     <div class="hub-status" id="hubStatus">
-                        <span class="hub-status-text">输入关键词开始搜索魔搭社区模型</span>
+                        <span class="hub-status-text" data-i18n="ui.049">输入关键词开始搜索魔搭社区模型</span>
                     </div>
 
                     <div class="hub-grid" id="hubGrid"></div>
@@ -425,23 +425,23 @@
                     <div class="official-section">
                         <div class="official-header">
                             <img src="assets/thinker-icon.png" width="28" height="28" class="official-icon">
-                            <span class="official-title">Soul Agent Launcher 官方模型</span>
+                            <span class="official-title" data-i18n="ui.050">Soul Agent Launcher 官方模型</span>
                         </div>
                         <div class="official-body">
-                            <p class="official-desc">官方推荐的 GGUF 模型，由 Soul Agent 团队精选和优化，点击即可下载。</p>
+                            <p class="official-desc" data-i18n="ui.051">官方推荐的 GGUF 模型，由 Soul Agent 团队精选和优化，点击即可下载。</p>
                         </div>
                     </div>
                     <!-- 官方模型列表 -->
                     <div class="official-model-list" id="officialModelList">
-                        <div class="official-loading">加载中...</div>
+                        <div class="official-loading" data-i18n="ui.052">加载中...</div>
                     </div>
                 </div>
             </div>
 
             <!-- ===== 启动页 ===== -->
             <div class="page" id="page-launch">
-                <h2 class="page-title">启动服务</h2>
-                <p class="page-desc">选择模型并启动推理服务。</p>
+                <h2 class="page-title" data-i18n="ui.026">启动服务</h2>
+                <p class="page-desc" data-i18n="ui.053">选择模型并启动推理服务。</p>
 
                 <!-- 选择模型 -->
                 <div class="card" style="margin-bottom:16px;">
@@ -451,19 +451,19 @@
                     </div>
                     <div class="card-body">
                         <div class="form-group">
-                            <label>模型文件</label>
+                            <label data-i18n="ui.054">模型文件</label>
                             <div class="model-check-list" id="modelCheckList">
-                                <div class="model-check-empty">暂无模型，请先在「模型」页添加 GGUF 模型</div>
+                                <div class="model-check-empty" data-i18n="ui.055">暂无模型，请先在「模型」页添加 GGUF 模型</div>
                             </div>
-                            <small>可多选，每个选中的模型将独立启动</small>
+                            <small data-i18n="ui.181">可多选，每个选中的模型将独立启动</small>
                         </div>
                         <div style="display:flex;gap:12px;flex-wrap:wrap;">
                             <div class="form-group" style="flex:1;min-width:100px;">
-                                <label>起始端口</label>
+                                <label data-i18n="ui.056">起始端口</label>
                                 <input type="number" id="launchPort" class="form-input" value="20000" style="width:100%;">
                             </div>
                             <div class="form-group" style="flex:1;min-width:100px;">
-                                <label>上下文长度</label>
+                                <label data-i18n="ui.057">上下文长度</label>
                                 <select id="launchCtx" class="form-select win11-select" style="width:100%;">
                                     <option value="2048">2K</option>
                                     <option value="4096" selected>4K</option>
@@ -481,23 +481,23 @@
                     <div class="engine-header">
                         <div class="engine-icon"><svg class="svg-icon acrylic-lg"><use href="#icon-gear"/></svg></div>
                         <div class="engine-info">
-                            <div class="engine-name">推理服务</div>
+                            <div class="engine-name" data-i18n="ui.058">推理服务</div>
                             <div class="engine-status" id="serverStatus">
                                 <span class="engine-dot offline" id="serverDot">●</span>
-                                <span id="serverLabel">未启动</span>
+                                <span id="serverLabel" data-i18n="ui.059">未启动</span>
                             </div>
                         </div>
                         <div class="engine-actions">
-                            <button class="btn btn-accent" id="startServerBtn" onclick="startServer()">启动服务</button>
-                            <button class="btn btn-danger" id="stopServerBtn" onclick="stopServer()" style="display:none;">停止服务</button>
+                            <button class="btn btn-accent" id="startServerBtn" onclick="startServer()" data-i18n="ui.026">启动服务</button>
+                            <button class="btn btn-danger" id="stopServerBtn" onclick="stopServer()" style="display:none;" data-i18n="ui.027">停止服务</button>
                         </div>
                     </div>
-                    <div class="engine-detail" id="serverDetail">端口 20000 · 已停止</div>
+                    <div class="engine-detail" id="serverDetail" data-i18n="ui.060">端口 20000 · 已停止</div>
                 </div>
 
                 <!-- API 端点信息 -->
                 <div class="api-endpoint" id="apiEndpoint" style="display:none;margin-top:10px;margin-bottom:16px;font-size:11px;background:var(--bg-primary);padding:8px 12px;border-radius:6px;border:1px solid var(--border-subtle);word-break:break-all;">
-                    <span style="color:var(--text-tertiary)">双端点 API:</span><br>
+                    <span style="color:var(--text-tertiary)" data-i18n="ui.025">双端点 API:</span><br>
                     <code style="color:var(--accent);font-size:11px;" id="apiUrl"></code>
                 </div>
 
@@ -510,23 +510,23 @@
                     <div class="quick-guide">
                         <div class="guide-step">
                             <span class="step-num">1</span>
-                            <span>在设置中配置 llama.cpp 路径和模型目录（首次自动安装）</span>
+                            <span data-i18n="ui.061">在设置中配置 llama.cpp 路径和模型目录（首次自动安装）</span>
                         </div>
                         <div class="guide-step">
                             <span class="step-num">2</span>
-                            <span>在「模型」页面下载或添加 GGUF 模型文件</span>
+                            <span data-i18n="ui.062">在「模型」页面下载或添加 GGUF 模型文件</span>
                         </div>
                         <div class="guide-step">
                             <span class="step-num">3</span>
-                            <span>回到本页选择模型，点击「启动服务」即可运行</span>
+                            <span data-i18n="ui.063">回到本页选择模型，点击「启动服务」即可运行</span>
                         </div>
                         <div class="guide-step">
                             <span class="step-num">4</span>
-                            <span>双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
+                            <span data-i18n="ui.039">双端点：/chat（自研轻量）· /v1/chat/completions（OpenAI 兼容）</span>
                         </div>
                         <div class="guide-step">
                             <span class="step-num">5</span>
-                            <span>Soul Agent 及其他 OpenAI 客户端可直接连接使用</span>
+                            <span data-i18n="ui.064">Soul Agent 及其他 OpenAI 客户端可直接连接使用</span>
                         </div>
                     </div>
                 </div>
@@ -534,25 +534,25 @@
                 <div class="card" id="runningModelsCard" style="margin-bottom:16px;">
                     <div class="card-header">
                         <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-box"/></svg></span>
-                        <span class="card-title">已启动模型</span>
+                        <span class="card-title" data-i18n="ui.065">已启动模型</span>
                         <div class="card-header-actions">
-                            <button class="btn btn-sm" onclick="unloadSelectedModels()" id="unloadSelectedBtn" style="display:none;color:var(--danger);font-size:11px;">卸载选中</button>
-                            <button class="btn btn-sm" onclick="unloadAllModels()" id="unloadAllBtn" style="font-size:11px;">全部卸载</button>
+                            <button class="btn btn-sm" onclick="unloadSelectedModels()" id="unloadSelectedBtn" style="display:none;color:var(--danger);font-size:11px;" data-i18n="ui.066">卸载选中</button>
+                            <button class="btn btn-sm" onclick="unloadAllModels()" id="unloadAllBtn" style="font-size:11px;" data-i18n="ui.067">全部卸载</button>
                         </div>
                     </div>
                     <div class="card-body" id="runningModelsBody">
-                        <div style="text-align:center;padding:20px 0;color:var(--text-tertiary);font-size:13px;" id="noRunningModels">暂无运行中的模型</div>
+                        <div style="text-align:center;padding:20px 0;color:var(--text-tertiary);font-size:13px;" id="noRunningModels" data-i18n="ui.068">暂无运行中的模型</div>
                         <div id="runningModelsList" style="display:none;"></div>
                     </div>
                 </div>
 
                 <div class="card">
                     <div class="card-header">
-                        <span class="card-title">控制台输出</span>
+                        <span class="card-title" data-i18n="ui.069">控制台输出</span>
                     </div>
                     <div class="card-body">
                         <div class="console" id="consoleOutput">
-                            <div class="console-line info">等待启动...</div>
+                            <div class="console-line info" data-i18n="ui.070">等待启动...</div>
                         </div>
                     </div>
                 </div>
@@ -565,17 +565,17 @@
                     <div class="ctx-status" id="liteSessionBar">
                         <div class="session-bar-switch" id="liteSessionSwitch" title="切换会话" onclick="toggleLiteSessionDropdown()">
                             <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                            <span class="mqs-label" id="liteSessionName" style="max-width:160px;">&nbsp;&nbsp;默认会话</span>
+                            <span class="mqs-label" id="liteSessionName" style="max-width:160px;" data-i18n="ui.071">&nbsp;&nbsp;默认会话</span>
                             <svg class="mqs-arrow" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 2l3 4 3-4z"/></svg>
                             <div class="mqs-dropdown" id="liteSessionDropdown" style="bottom:auto;top:100%;margin-bottom:0;margin-top:2px;"></div>
                         </div>
-                        <button class="btn btn-sm" id="liteNewSessionBtn" onclick="createNewSession()" title="新建会话" style="margin-left:auto;padding:1px 6px;font-size:11px;min-height:20px;">+ 新建</button>
+                        <button class="btn btn-sm" id="liteNewSessionBtn" onclick="createNewSession()" title="新建会话" style="margin-left:auto;padding:1px 6px;font-size:11px;min-height:20px;" data-i18n="ui.072">+ 新建</button>
                     </div>
 
                     <div class="chat-messages" id="liteMessages">
                         <div class="welcome-message" style="text-align:center;padding:40px 20px;">
                             <h2 style="font-size:24px;font-weight:600;margin-bottom:12px;">Soul Agent Lite</h2>
-                            <p style="color:var(--text-secondary);font-size:14px;">启动服务后即可开始对话</p>
+                            <p style="color:var(--text-secondary);font-size:14px;" data-i18n="ui.073">启动服务后即可开始对话</p>
                         </div>
                     </div>
 
@@ -584,7 +584,7 @@
                             <circle cx="6" cy="6" r="5" fill="none" stroke="var(--border-subtle)" stroke-width="1.5"/>
                             <circle class="ctx-ring-fill" id="liteCtxRingFill" cx="6" cy="6" r="5" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="31.416" stroke-dashoffset="31.416" transform="rotate(-90 6 6)" stroke-linecap="round"/>
                         </svg>
-                        <span class="ctx-text" id="liteCtxText">0% - 0.00K/2.00K 已使用</span>
+                        <span class="ctx-text" id="liteCtxText" data-i18n="ui.074">0% - 0.00K/2.00K 已使用</span>
                         <div class="model-quick-switch" id="liteModelQuickSwitch" title="切换模型">
                             <span class="mqs-label" id="liteMqsLabel">default</span>
                             <svg class="mqs-arrow" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M1 2l3 4 3-4z"/></svg>
@@ -593,18 +593,18 @@
                         <div class="status-center">
                             <div class="status-toggle think-tgl active" id="liteThinkToggle" title="深度思考">
                                 <img class="tgl-icon" src="assets/thinker-icon.png" width="14" height="14">
-                                <span class="tgl-label">深度思考</span>
+                                <span class="tgl-label" data-i18n="ui.075">深度思考</span>
                             </div>
                             <div class="status-divider"></div>
                             <div class="status-toggle hidden" id="kbToolStatusToggle" title="高级工具调用：模型可主动查询知识库（需模型支持）">
                                 <svg class="tgl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                                <span class="tgl-label">工具调用</span>
+                                <span class="tgl-label" data-i18n="ui.076">工具调用</span>
                             </div>
                         </div>
                         <div class="status-right">
                             <div class="status-toggle active" id="liteMultimodalToggle" title="多模态">
                                 <svg class="tgl-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                                <span class="tgl-label">多模态</span>
+                                <span class="tgl-label" data-i18n="ui.077">多模态</span>
                             </div>
                         </div>
                     </div>
@@ -614,7 +614,7 @@
                             <button class="kb-bar-btn" id="kbAutoBtn" onclick="toggleKbAuto()" title="自动检索：每次提问自动从知识库检索相关内容" style="padding:2px 8px;font-size:11px;height:36px;background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;">
                                 <span id="kbAutoLabel">
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;margin-right:3px;"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
-                                    知识库
+                                    <span data-i18n="ui.177">知识库</span>
                                 </span>
                             </button>
                         </div>
@@ -622,7 +622,7 @@
                             style="flex:1;resize:none;overflow:hidden;" disabled></textarea>
                         <button class="btn btn-accent" id="sendBtn" onclick="sendLiteMessage()" disabled>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                            发送
+                            <span data-i18n="ui.178">发送</span>
                         </button>
                     </div>
                 </div>
@@ -630,8 +630,8 @@
 
             <!-- ===== 知识库 ===== -->
             <div class="page" id="page-knowledge">
-                <h2 class="page-title">知识库</h2>
-                <p class="page-desc">管理知识文档，在对话中自动检索相关内容。</p>
+                <h2 class="page-title" data-i18n="ui.078">知识库</h2>
+                <p class="page-desc" data-i18n="ui.079">管理知识文档，在对话中自动检索相关内容。</p>
                 <div style="padding:8px 12px;margin-bottom:16px;background:rgba(79,195,247,0.08);border:1px solid rgba(79,195,247,0.2);border-radius:8px;font-size:12px;color:var(--text-secondary);line-height:1.6;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     <strong>隐私说明：</strong>SAL 会读取您添加的文件夹中的文本文件并建立本地索引
@@ -648,17 +648,17 @@
                         <span class="card-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                         </span>
-                        <span class="card-title">嵌入服务</span>
+                        <span class="card-title" data-i18n="ui.080">嵌入服务</span>
                         <span id="kbEmbedIndicator" style="margin-left:auto;font-size:11px;display:flex;align-items:center;gap:4px;">
                             <span id="kbEmbedDot" style="width:8px;height:8px;border-radius:50%;background:#888;display:inline-block;"></span>
-                            <span id="kbEmbedLabel">未启动</span>
+                            <span id="kbEmbedLabel" data-i18n="ui.059">未启动</span>
                         </span>
                     </div>
                     <div class="card-body" style="font-size:12px;color:var(--text-secondary);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <span>嵌入模型：all-MiniLM-L6-v2 Q4_K_M (23.5MB, 384维)</span>
-                        <button class="btn btn-sm" id="kbEmbedStartBtn" onclick="startEmbeddingService()" style="font-size:11px;padding:2px 8px;">启动</button>
-                        <button class="btn btn-sm" id="kbEmbedStopBtn" onclick="stopEmbeddingService()" style="font-size:11px;padding:2px 8px;display:none;">停止</button>
-                        <button class="btn btn-sm" id="kbEmbedDownloadBtn" onclick="downloadEmbeddingModel()" style="font-size:11px;padding:2px 8px;">下载模型</button>
+                        <span data-i18n="ui.081">嵌入模型：all-MiniLM-L6-v2 Q4_K_M (23.5MB, 384维)</span>
+                        <button class="btn btn-sm" id="kbEmbedStartBtn" onclick="startEmbeddingService()" style="font-size:11px;padding:2px 8px;" data-i18n="ui.082">启动</button>
+                        <button class="btn btn-sm" id="kbEmbedStopBtn" onclick="stopEmbeddingService()" style="font-size:11px;padding:2px 8px;display:none;" data-i18n="ui.083">停止</button>
+                        <button class="btn btn-sm" id="kbEmbedDownloadBtn" onclick="downloadEmbeddingModel()" style="font-size:11px;padding:2px 8px;" data-i18n="ui.084">下载模型</button>
                     </div>
                 </div>
 
@@ -667,17 +667,17 @@
                         <span class="card-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
                         </span>
-                        <span class="card-title">已添加的文件夹</span>
-                        <button class="btn btn-sm" onclick="reindexKbAll()" style="margin-left:auto;font-size:11px;padding:2px 8px;">重新索引全部</button>
+                        <span class="card-title" data-i18n="ui.085">已添加的文件夹</span>
+                        <button class="btn btn-sm" onclick="reindexKbAll()" style="margin-left:auto;font-size:11px;padding:2px 8px;" data-i18n="ui.086">重新索引全部</button>
                     </div>
                     <div class="card-body">
                         <div id="kbFolderList" style="margin-bottom:12px;">
-                            <div style="padding:12px;text-align:center;color:var(--text-tertiary);font-size:13px;">暂无文件夹，点击下方添加</div>
+                            <div style="padding:12px;text-align:center;color:var(--text-tertiary);font-size:13px;" data-i18n="ui.087">暂无文件夹，点击下方添加</div>
                         </div>
                         <div style="display:flex;gap:8px;">
-                            <input type="text" id="kbFolderInput" placeholder="输入文件夹路径或点击浏览..." style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;">
-                            <button class="btn btn-sm" onclick="browseKbFolder()">浏览</button>
-                            <button class="btn btn-accent btn-sm" onclick="addKbFolder()">添加</button>
+                            <input type="text" id="kbFolderInput" placeholder="输入文件夹路径或点击浏览..." data-i18n-placeholder="ph.3" style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;">
+                            <button class="btn btn-sm" onclick="browseKbFolder()" data-i18n="ui.088">浏览</button>
+                            <button class="btn btn-accent btn-sm" onclick="addKbFolder()" data-i18n="ui.089">添加</button>
                         </div>
                     </div>
                 </div>
@@ -687,13 +687,13 @@
                         <span class="card-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 13h8v2H8v-2zm0 4h8v2H8v-2z"/></svg>
                         </span>
-                        <span class="card-title">拖拽文件（单次查阅）</span>
-                        <button class="btn btn-sm btn-danger" onclick="clearKbTemp()" style="margin-left:auto;font-size:11px;padding:2px 8px;">清除临时文件</button>
+                        <span class="card-title" data-i18n="ui.090">拖拽文件（单次查阅）</span>
+                        <button class="btn btn-sm btn-danger" onclick="clearKbTemp()" style="margin-left:auto;font-size:11px;padding:2px 8px;" data-i18n="ui.091">清除临时文件</button>
                     </div>
                     <div class="card-body">
                         <div id="kbDropZone" style="border:2px dashed var(--border-color);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:border-color 0.4s,background 0.4s;" onclick="document.getElementById('kbFileInput').click()">
-                            <div style="font-size:13px;color:var(--text-secondary);">拖拽文件到此处，或点击选择文件</div>
-                            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;">支持 .txt .md .json .py .js .rs .csv 等文本格式</div>
+                            <div style="font-size:13px;color:var(--text-secondary);" data-i18n="ui.092">拖拽文件到此处，或点击选择文件</div>
+                            <div style="font-size:11px;color:var(--text-tertiary);margin-top:4px;" data-i18n="ui.093">支持 .txt .md .json .py .js .rs .csv 等文本格式</div>
                         </div>
                         <input type="file" id="kbFileInput" multiple style="display:none;" accept=".txt,.md,.markdown,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.log,.csv,.xml,.html,.htm,.py,.js,.ts,.rs,.java,.cpp,.c,.h,.css" onchange="handleKbFiles(this.files)">
                         <div id="kbSingleFiles" style="margin-top:8px;"></div>
@@ -705,12 +705,12 @@
                         <span class="card-icon">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                         </span>
-                        <span class="card-title">搜索知识库</span>
+                        <span class="card-title" data-i18n="ui.094">搜索知识库</span>
                     </div>
                     <div class="card-body">
                         <div style="display:flex;gap:8px;margin-bottom:12px;">
-                            <input type="text" id="kbSearchInput" placeholder="输入搜索关键词..." style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;">
-                            <button class="btn btn-accent btn-sm" onclick="searchKb()">搜索</button>
+                            <input type="text" id="kbSearchInput" placeholder="输入搜索关键词..." data-i18n-placeholder="ph.4" style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;">
+                            <button class="btn btn-accent btn-sm" onclick="searchKb()" data-i18n="ui.048">搜索</button>
                         </div>
                         <div id="kbSearchResults" style="max-height:300px;overflow-y:auto;"></div>
                     </div>
@@ -719,37 +719,37 @@
 
             <!-- ===== 设置页 ===== -->
             <div class="page" id="page-settings">
-                <h2 class="page-title">设置</h2>
-                <p class="page-desc">配置 Soul Agent Launcher 的各项参数。</p>
+                <h2 class="page-title" data-i18n="ui.095">设置</h2>
+                <p class="page-desc" data-i18n="ui.096">配置 Soul Agent Launcher 的各项参数。</p>
 
                 <div class="settings-section">
-                    <h3 class="section-title">服务路径</h3>
+                    <h3 class="section-title" data-i18n="ui.097">服务路径</h3>
                     <div class="form-group">
-                        <label>llama.cpp 可执行文件路径</label>
+                        <label data-i18n="ui.098">llama.cpp 可执行文件路径</label>
                         <div class="input-with-btn">
                             <input type="text" id="llamaPath" class="form-input" placeholder="C:\llama\build\bin\Release\llama-server.exe">
-                            <button class="btn" onclick="selectFilePath('llamaPath')">选择</button>
+                            <button class="btn" onclick="selectFilePath('llamaPath')" data-i18n="ui.099">选择</button>
                         </div>
-                        <small>llama-server 或 llama-cli 的完整路径</small>
+                        <small data-i18n="ui.179">llama-server 或 llama-cli 的完整路径</small>
                     </div>
                     <div class="form-group">
-                        <label>模型目录</label>
+                        <label data-i18n="ui.100">模型目录</label>
                         <div class="input-with-btn">
                             <input type="text" id="modelsDir" class="form-input" placeholder="C:\models">
-                            <button class="btn" onclick="selectFolderPath('modelsDir')">选择</button>
+                            <button class="btn" onclick="selectFolderPath('modelsDir')" data-i18n="ui.099">选择</button>
                         </div>
-                        <small>存放 GGUF 模型的文件夹</small>
+                        <small data-i18n="ui.180">存放 GGUF 模型的文件夹</small>
                     </div>
                 </div>
 
                 <div class="settings-section">
-                    <h3 class="section-title">默认参数</h3>
+                    <h3 class="section-title" data-i18n="ui.101">默认参数</h3>
                     <div class="form-group">
-                        <label>默认端口</label>
+                        <label data-i18n="ui.102">默认端口</label>
                         <input type="number" id="defaultPort" class="form-input" value="20000" style="width:120px;">
                     </div>
                     <div class="form-group">
-                        <label>默认上下文长度</label>
+                        <label data-i18n="ui.103">默认上下文长度</label>
                         <select id="defaultCtx" class="form-select" style="width:120px;">
                             <option value="2048">2K</option>
                             <option value="4096" selected>4K</option>
@@ -759,29 +759,29 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>空闲自动待机</label>
+                        <label data-i18n="ui.104">空闲自动待机</label>
                         <select id="standbyIdleMin" class="form-select" style="width:120px;">
-                            <option value="0" selected>关闭</option>
-                            <option value="5">5 分钟</option>
-                            <option value="10">10 分钟</option>
-                            <option value="30">30 分钟</option>
+                            <option value="0" selected data-i18n="ui.105">关闭</option>
+                            <option value="5" data-i18n="ui.106">5 分钟</option>
+                            <option value="10" data-i18n="ui.107">10 分钟</option>
+                            <option value="30" data-i18n="ui.108">30 分钟</option>
                         </select>
-                        <div class="form-hint">空闲后自动释放显存，下次请求自动唤醒（约数秒~数十秒）</div>
+                        <div class="form-hint" data-i18n="ui.109">空闲后自动释放显存，下次请求自动唤醒（约数秒~数十秒）</div>
                     </div>
                     <div class="form-group">
-                        <label>mmproj 路径（多模态模型可选）</label>
+                        <label data-i18n="ui.110">mmproj 路径（多模态模型可选）</label>
                         <div class="input-with-btn">
-                            <input type="text" id="mmprojPath" class="form-input" placeholder="视觉投影模型路径，留空 = 纯文本模式">
-                            <button class="btn" onclick="selectFilePath('mmprojPath')">选择</button>
+                            <input type="text" id="mmprojPath" class="form-input" placeholder="视觉投影模型路径，留空 = 纯文本模式" data-i18n-placeholder="ph.5">
+                            <button class="btn" onclick="selectFilePath('mmprojPath')" data-i18n="ui.099">选择</button>
                         </div>
-                        <div class="form-hint">多模态模型启动时自动附加 --mmproj；待机唤醒后原样恢复。注意：此路径会附加到所有启动的模型，混用纯文本模型时请勿填写</div>
+                        <div class="form-hint" data-i18n="ui.111">多模态模型启动时自动附加 --mmproj；待机唤醒后原样恢复。注意：此路径会附加到所有启动的模型，混用纯文本模型时请勿填写</div>
                     </div>
                 </div>
 
                 <div class="settings-section">
-                    <h3 class="section-title">极致精简编译</h3>
+                    <h3 class="section-title" data-i18n="ui.112">极致精简编译</h3>
                     <div class="form-group">
-                        <label>从源码编译极致精简版 llama-server</label>
+                        <label data-i18n="ui.113">从源码编译极致精简版 llama-server</label>
                         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:10px;line-height:1.5;">
                             CPU-only 静态编译 + UPX，仅保留 Server + 多模态。<br>
                             <code>/chat</code> 原生流式 · <code>/v1/chat/completions</code> 待机流式<br>
@@ -790,11 +790,12 @@
                         <div class="input-with-btn" style="margin-bottom:8px;">
                             <input type="text" id="buildScriptPath" class="form-input"
                                 placeholder="编译脚本路径，如 build-llama\build-minimal.ps1"
+                                data-i18n-placeholder="ph.6"
                                 value="">
-                            <button class="btn" onclick="selectFilePath('buildScriptPath')">选择</button>
+                            <button class="btn" onclick="selectFilePath('buildScriptPath')" data-i18n="ui.099">选择</button>
                         </div>
                         <div class="card-actions" style="justify-content:flex-start;">
-                            <button class="btn btn-accent" onclick="buildMinimal()">开始编译</button>
+                            <button class="btn btn-accent" onclick="buildMinimal()" data-i18n="ui.114">开始编译</button>
                         </div>
                         <div id="buildStatus" style="margin-top:8px;font-size:12px;color:var(--text-tertiary);"></div>
                     </div>
@@ -812,19 +813,19 @@
                 </div>
 
                 <div class="settings-section">
-                    <h3 class="section-title">外观</h3>
+                    <h3 class="section-title" data-i18n="ui.115">外观</h3>
                     <div class="form-group">
-                        <label>主题模式</label>
+                        <label data-i18n="ui.116">主题模式</label>
                         <div class="theme-switch">
                             <input type="checkbox" id="themeToggle">
                             <label for="themeToggle" class="theme-slider"></label>
-                            <span id="themeLabel">亮色模式</span>
+                            <span id="themeLabel" data-i18n="ui.117">亮色模式</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="settings-section">
-                    <h3 class="section-title">行为</h3>
+                    <h3 class="section-title" data-i18n="ui.118">行为</h3>
                     <div class="form-group">
                         <label>
                             <input type="checkbox" id="quitOnClose" checked>
@@ -835,16 +836,16 @@
                     <div class="form-group">
                         <label>
                             <input type="checkbox" id="autoLaunchOnBoot">
-                            开机自启动（托盘模式）
+                            <span data-i18n="settings.auto_launch">开机自启动（托盘模式）</span>
                         </label>
-                        <div class="form-hint">系统启动时在后台运行（最小化到托盘），立即生效</div>
+                        <div class="form-hint" data-i18n="ui.119">系统启动时在后台运行（最小化到托盘），立即生效</div>
                     </div>
                     <div class="form-group">
                         <label>
                             <input type="checkbox" id="restoreModelsOnBoot">
-                            启动时自动恢复上次运行的模型
+                            <span data-i18n="settings.restore_models">启动时自动恢复上次运行的模型</span>
                         </label>
-                        <div class="form-hint">记住关闭前正在运行的模型，下次启动自动重新加载</div>
+                        <div class="form-hint" data-i18n="ui.120">记住关闭前正在运行的模型，下次启动自动重新加载</div>
                     </div>
                 </div>
 
@@ -887,6 +888,7 @@
                     </div>
                     <div class="card-actions" style="margin-top:10px;">
                         <button class="btn" onclick="runEnvCheck()" data-i18n="env.check_all">全部重新检测</button>
+                        <button class="btn" onclick="cleanupTempFiles()" data-i18n="env.clean_temp">清理临时文件</button>
                     </div>
                 </div>
 
@@ -894,7 +896,7 @@
                     <h3 class="section-title" data-i18n="integrity.title">模型完整性校验</h3>
                     <div class="form-hint" data-i18n="integrity.hint" style="margin-bottom:10px;">下载完成的模型会自动记录 SHA256。启动模型时自动比对体积；此处可粘贴路径做全量哈希校验。</div>
                     <div style="display:flex;gap:8px;align-items:center;">
-                        <input type="text" id="integrityPath" class="form-input" data-i18n-placeholder="integrity.path_hint" placeholder="粘贴 GGUF 模型文件完整路径" style="flex:1;">
+                        <input type="text" id="integrityPath" class="form-input" data-i18n-placeholder="integrity.path_hint" placeholder="粘贴 GGUF 模型文件完整路径" data-i18n-placeholder="ph.7" style="flex:1;">
                         <button class="btn btn-accent" id="integrityBtn" onclick="verifyModelIntegrity()" data-i18n="integrity.check_btn">校验</button>
                     </div>
                     <div id="integrityResult" class="form-hint" style="margin-top:8px;white-space:pre-wrap;"></div>
@@ -912,33 +914,33 @@
                 </div>
 
                 <div class="card-actions" style="margin-top:24px;">
-                    <button class="btn btn-accent" onclick="saveSettings()">保存设置</button>
-                    <button class="btn btn-outline" onclick="checkUpdate(this)">检查更新</button>
+                    <button class="btn btn-accent" onclick="saveSettings()" data-i18n="ui.121">保存设置</button>
+                    <button class="btn btn-outline" onclick="checkUpdate(this)" data-i18n="ui.122">检查更新</button>
                     <span id="updateStatus" style="font-size:12px;color:var(--text-tertiary);margin-left:8px;"></span>
                 </div>
             </div>
 
             <!-- ===== 会话页 ===== -->
             <div class="page" id="page-sessions">
-                <h2 class="page-title">会话</h2>
-                <p class="page-desc">管理对话历史记录。</p>
+                <h2 class="page-title" data-i18n="ui.123">会话</h2>
+                <p class="page-desc" data-i18n="ui.124">管理对话历史记录。</p>
 
                 <div class="card" style="margin-bottom:16px;">
                     <div class="card-header">
                         <span class="card-icon"><svg class="svg-icon acrylic"><use href="#icon-chat"/></svg></span>
-                        <span class="card-title">历史会话</span>
+                        <span class="card-title" data-i18n="ui.125">历史会话</span>
                         <div class="card-header-actions">
-                            <button class="btn btn-accent btn-sm" onclick="createNewSession()">新建会话</button>
+                            <button class="btn btn-accent btn-sm" onclick="createNewSession()" data-i18n="ui.126">新建会话</button>
                         </div>
                     </div>
                     <div class="card-body">
                         <div style="display:flex;gap:8px;margin-bottom:12px;">
-                            <input type="text" id="sessionSearchInput" placeholder="搜索全部会话内容，Enter 搜索..." style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;" onkeydown="if(event.key==='Enter')doSearchSessions()">
-                            <button class="btn btn-sm" onclick="doSearchSessions()">搜索</button>
+                            <input type="text" id="sessionSearchInput" placeholder="搜索全部会话内容，Enter 搜索..." data-i18n-placeholder="ph.8" style="flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);font-size:13px;" onkeydown="if(event.key==='Enter')doSearchSessions()">
+                            <button class="btn btn-sm" onclick="doSearchSessions()" data-i18n="ui.048">搜索</button>
                         </div>
                         <div id="sessionSearchResults" style="display:none;margin-bottom:12px;"></div>
                         <div class="session-list" id="sessionList">
-                            <div class="session-empty">暂无会话，点击「新建会话」开始。</div>
+                            <div class="session-empty" data-i18n="ui.127">暂无会话，点击「新建会话」开始。</div>
                         </div>
                     </div>
                 </div>
@@ -952,27 +954,27 @@
             <div style="margin-bottom:12px;">
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#FFB74D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </div>
-            <h3 id="confirmTitle">确认下载</h3>
+            <h3 id="confirmTitle" data-i18n="ui.128">确认下载</h3>
             <p id="confirmMessage" style="font-size:13px;color:var(--text-secondary);line-height:1.6;"></p>
             <div class="card-actions" style="margin-top:16px;justify-content:center;">
-                <button class="btn" onclick="closeConfirmDialog(false)">取消</button>
-                <button class="btn btn-accent" onclick="closeConfirmDialog(true)">确认下载</button>
+                <button class="btn" onclick="closeConfirmDialog(false)" data-i18n="ui.021">取消</button>
+                <button class="btn btn-accent" onclick="closeConfirmDialog(true)" data-i18n="ui.128">确认下载</button>
             </div>
         </div>
     </div>
 
     <div class="download-overlay hidden" id="downloadOverlay">
         <div class="download-box">
-            <h3 id="downloadTitle">正在下载模型</h3>
-            <p id="downloadModelInfo">请稍候...</p>
+            <h3 id="downloadTitle" data-i18n="ui.129">正在下载模型</h3>
+            <p id="downloadModelInfo" data-i18n="ui.130">请稍候...</p>
             <div class="download-progress-bar">
                 <div class="download-progress-fill" id="downloadProgressFill" style="width:0%"></div>
             </div>
             <div class="download-progress-text" id="downloadProgressPct">0%</div>
-            <div class="download-progress-message" id="downloadProgressMsg">准备中...</div>
+            <div class="download-progress-message" id="downloadProgressMsg" data-i18n="ui.131">准备中...</div>
             <div class="card-actions" style="margin-top:12px;">
-                <button class="btn btn-danger" id="cancelDownloadBtn" onclick="cancelDownload()">取消下载</button>
-                <button class="btn btn-accent hidden" id="retryDownloadBtn" onclick="retryDownload()">重试下载</button>
+                <button class="btn btn-danger" id="cancelDownloadBtn" onclick="cancelDownload()" data-i18n="ui.132">取消下载</button>
+                <button class="btn btn-accent hidden" id="retryDownloadBtn" onclick="retryDownload()" data-i18n="ui.133">重试下载</button>
             </div>
         </div>
     </div>
@@ -983,16 +985,16 @@
     <!-- 导入命名弹窗 -->
     <div class="download-overlay hidden" id="importOverlay">
         <div class="download-box" style="text-align:left;">
-            <h3>导入模型</h3>
-            <p id="importFileInfo" style="word-break:break-all;">选中文件: -</p>
+            <h3 data-i18n="ui.134">导入模型</h3>
+            <p id="importFileInfo" style="word-break:break-all;" data-i18n="ui.135">选中文件: -</p>
             <div class="form-group" style="margin-top:12px;">
-                <label for="importNameInput">模型名称</label>
-                <input type="text" id="importNameInput" class="form-input" placeholder="输入模型显示名称" style="width:100%;">
-                <small style="color:var(--text-tertiary);font-size:11px;">导入后文件名锁定，不支持改名</small>
+                <label for="importNameInput" data-i18n="ui.136">模型名称</label>
+                <input type="text" id="importNameInput" class="form-input" placeholder="输入模型显示名称" data-i18n-placeholder="ph.9" style="width:100%;">
+                <small style="color:var(--text-tertiary);font-size:11px;" data-i18n="ui.182">导入后文件名锁定，不支持改名</small>
             </div>
             <div class="card-actions" style="margin-top:16px;justify-content:flex-end;">
-                <button class="btn btn-danger" onclick="cancelImport()">取消</button>
-                <button class="btn btn-accent" onclick="confirmImport()">确认导入</button>
+                <button class="btn btn-danger" onclick="cancelImport()" data-i18n="ui.021">取消</button>
+                <button class="btn btn-accent" onclick="confirmImport()" data-i18n="ui.137">确认导入</button>
             </div>
         </div>
     </div>
@@ -1000,14 +1002,14 @@
     <!-- 快速启动弹窗 -->
     <div class="download-overlay hidden" id="quickStartOverlay">
         <div class="download-box" style="text-align:left;max-width:520px;">
-            <h3 style="margin-bottom:4px;">快速启动模型</h3>
-            <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:16px;">选择要启动的模型，支持多选</p>
+            <h3 style="margin-bottom:4px;" data-i18n="ui.138">快速启动模型</h3>
+            <p style="font-size:13px;color:var(--text-tertiary);margin-bottom:16px;" data-i18n="ui.139">选择要启动的模型，支持多选</p>
             <div class="model-check-list" id="quickModelCheckList" style="max-height:320px;">
-                <div class="model-check-empty">暂无本地模型，请先下载</div>
+                <div class="model-check-empty" data-i18n="ui.140">暂无本地模型，请先下载</div>
             </div>
             <div class="card-actions" style="margin-top:16px;justify-content:space-between;">
-                <button class="btn btn-danger" onclick="closeQuickStart()">取消</button>
-                <button class="btn btn-accent" id="quickStartBtn" onclick="quickStartModels()">快速启动</button>
+                <button class="btn btn-danger" onclick="closeQuickStart()" data-i18n="ui.021">取消</button>
+                <button class="btn btn-accent" id="quickStartBtn" onclick="quickStartModels()" data-i18n="ui.141">快速启动</button>
             </div>
         </div>
     </div>
@@ -1015,9 +1017,9 @@
     <!-- 隐私政策弹窗 -->
     <div class="download-overlay hidden" id="privacyOverlay" style="z-index:99999;">
         <div class="download-box" style="text-align:center;max-width:500px;">
-            <h3 style="text-align:center;margin-bottom:16px;">隐私政策</h3>
+            <h3 style="text-align:center;margin-bottom:16px;" data-i18n="ui.142">隐私政策</h3>
             <div style="text-align:left;font-size:13px;line-height:1.8;color:var(--text-secondary);padding:0 4px;">
-                <p>Soul Agent Launcher（SAL）是一款完全离线运行的本地工具。</p>
+                <p data-i18n="ui.143">Soul Agent Launcher（SAL）是一款完全离线运行的本地工具。</p>
                 <p><strong>1.</strong> SAL 不收集、不上传任何用户个人信息、聊天记录、硬件信息或模型文件。</p>
                 <p><strong>2.</strong> SAL 的所有数据（配置、会话、模型）均存储在用户本地设备中，开发者无法访问。</p>
                 <p><strong>3.</strong> SAL 不会主动联网，除非用户明确触发模型下载或手动检查更新（更新服务器仅接收版本号请求，不记录任何可识别身份的信息）。</p>
@@ -1025,7 +1027,7 @@
                 <p><strong>5.</strong> 使用 SAL 即表示您同意本隐私政策。如您不同意，请停止使用并卸载本软件。</p>
             </div>
             <div class="card-actions" style="margin-top:20px;justify-content:center;">
-                <button class="btn btn-accent" onclick="confirmPrivacy()" style="min-width:120px;justify-content:center;">确认</button>
+                <button class="btn btn-accent" onclick="confirmPrivacy()" style="min-width:120px;justify-content:center;" data-i18n="ui.015">确认</button>
             </div>
         </div>
     </div>
@@ -1033,37 +1035,37 @@
     <!-- 使用教程弹窗 -->
     <div class="download-overlay hidden" id="tutorialOverlay">
         <div class="download-box" style="text-align:left;max-width:540px;max-height:80vh;overflow-y:auto;">
-            <h3 style="margin-bottom:16px;">使用教程</h3>
+            <h3 style="margin-bottom:16px;" data-i18n="ui.144">使用教程</h3>
             <div style="font-size:13px;line-height:1.8;color:var(--text-secondary);">
                 <div style="margin-bottom:16px;">
                     <strong style="color:var(--text-primary);">快速开始</strong>
-                    <p style="margin:4px 0 0;">选择"一键自动部署"自动完成硬件检测、模型推荐和下载，适合新手。</p>
-                    <p style="margin:2px 0 0;">自动部署后点击左侧会话菜单新建会话即可开始对话</p>
+                    <p style="margin:4px 0 0;" data-i18n="ui.145">选择"一键自动部署"自动完成硬件检测、模型推荐和下载，适合新手。</p>
+                    <p style="margin:2px 0 0;" data-i18n="ui.146">自动部署后点击左侧会话菜单新建会话即可开始对话</p>
                 </div>
                 <div style="margin-bottom:16px;">
                     <strong style="color:var(--text-primary);">手动启动</strong>
-                    <p style="margin:4px 0 0;">点击主页"启动服务"→ 弹出快速启动弹窗 → 勾选要启动的模型 → 点击"快速启动"。</p>
+                    <p style="margin:4px 0 0;" data-i18n="ui.147">点击主页"启动服务"→ 弹出快速启动弹窗 → 勾选要启动的模型 → 点击"快速启动"。</p>
                 </div>
                 <div style="margin-bottom:16px;">
                     <strong style="color:var(--text-primary);">API 端点</strong>
                     <p style="margin:4px 0 0;">每个模型提供两个 API 端点：<code>/chat</code>（自研轻量协议）和 <code>/v1/chat/completions</code>（OpenAI 兼容），可直接接入 Soul Agent 或其他客户端。</p>
-                    <p style="margin:2px 0 0;font-size:12px;color:var(--text-tertiary);">Tips: 日常使用建议直接使用 SA Lite 在"会话"菜单进行对话即可（无 Agent 编码能力）</p>
+                    <p style="margin:2px 0 0;font-size:12px;color:var(--text-tertiary);" data-i18n="ui.148">Tips: 日常使用建议直接使用 SA Lite 在"会话"菜单进行对话即可（无 Agent 编码能力）</p>
                 </div>
                 <div style="margin-bottom:16px;">
                     <strong style="color:var(--text-primary);">模型管理</strong>
-                    <p style="margin:4px 0 0;">在"模型"页可以下载官方推荐模型（GGUF 格式），或从本地导入已有模型文件。</p>
+                    <p style="margin:4px 0 0;" data-i18n="ui.149">在"模型"页可以下载官方推荐模型（GGUF 格式），或从本地导入已有模型文件。</p>
                 </div>
                 <div style="margin-bottom:16px;">
                     <strong style="color:var(--text-primary);">配置路径</strong>
-                    <p style="margin:4px 0 0;">在"设置"页配置 llama.cpp 路径和模型目录。首次启动时会自动检测和安装依赖。</p>
+                    <p style="margin:4px 0 0;" data-i18n="ui.150">在"设置"页配置 llama.cpp 路径和模型目录。首次启动时会自动检测和安装依赖。</p>
                 </div>
                 <div>
                     <strong style="color:var(--text-primary);">深度思考</strong>
-                    <p style="margin:4px 0 0;">支持模型的深度思考（Reasoning）能力，在对话界面可开启"深度思考"开关查看推理过程。</p>
+                    <p style="margin:4px 0 0;" data-i18n="ui.151">支持模型的深度思考（Reasoning）能力，在对话界面可开启"深度思考"开关查看推理过程。</p>
                 </div>
             </div>
             <div class="card-actions" style="margin-top:20px;justify-content:flex-end;">
-                <button class="btn btn-accent" onclick="hideTutorial()" style="justify-content:center;">知道了</button>
+                <button class="btn btn-accent" onclick="hideTutorial()" style="justify-content:center;" data-i18n="ui.152">知道了</button>
             </div>
         </div>
     </div>
@@ -1071,27 +1073,27 @@
     <!-- 跑分模式选择弹窗 -->
     <div class="download-overlay hidden" id="benchModeOverlay">
         <div class="download-box" style="text-align:center;max-width:500px;">
-            <h3 style="margin-bottom:16px;">选择跑分模式</h3>
+            <h3 style="margin-bottom:16px;" data-i18n="ui.153">选择跑分模式</h3>
             <div style="display:flex;gap:12px;margin-bottom:20px;">
                 <div class="mode-card" id="benchQuick" onclick="selectBenchMode('quick')" style="flex:1;cursor:pointer;">
                     <div class="mode-card-icon" style="margin-bottom:6px;">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                     </div>
-                    <div class="mode-card-title" style="font-size:15px;">快速跑分</div>
+                    <div class="mode-card-title" style="font-size:15px;" data-i18n="ui.154">快速跑分</div>
                     <div class="mode-card-desc" style="font-size:11px;">自动下载两个测试模型<br>综合评估硬件性能</div>
-                    <div style="margin-top:8px;"><span style="display:inline-block;background:var(--accent);color:#fff;font-size:10px;padding:2px 8px;border-radius:3px;">推荐</span></div>
+                    <div style="margin-top:8px;"><span style="display:inline-block;background:var(--accent);color:#fff;font-size:10px;padding:2px 8px;border-radius:3px;" data-i18n="ui.155">推荐</span></div>
                 </div>
                 <div class="mode-card" id="benchCustom" onclick="selectBenchMode('custom')" style="flex:1;cursor:pointer;">
                     <div class="mode-card-icon" style="margin-bottom:6px;">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                     </div>
-                    <div class="mode-card-title" style="font-size:15px;">自定义跑分</div>
+                    <div class="mode-card-title" style="font-size:15px;" data-i18n="ui.156">自定义跑分</div>
                     <div class="mode-card-desc" style="font-size:11px;">选择指定模型进行测试<br>评估特定场景性能</div>
                 </div>
             </div>
             <div class="card-actions" style="justify-content:center;">
-                <button class="btn btn-danger" onclick="closeBenchMode()">取消</button>
-                <button class="btn btn-accent" id="benchModeConfirmBtn" onclick="confirmBenchMode()" disabled>下一步</button>
+                <button class="btn btn-danger" onclick="closeBenchMode()" data-i18n="ui.021">取消</button>
+                <button class="btn btn-accent" id="benchModeConfirmBtn" onclick="confirmBenchMode()" disabled data-i18n="ui.157">下一步</button>
             </div>
         </div>
     </div>
@@ -1099,38 +1101,38 @@
     <!-- 自定义跑分-选择模型弹窗 -->
     <div class="download-overlay hidden" id="benchModelOverlay">
         <div class="download-box" style="text-align:left;max-width:540px;max-height:80vh;overflow-y:auto;">
-            <h3 style="margin-bottom:12px;">选择测试模型</h3>
-            <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px;">选择一个模型进行跑分测试</p>
+            <h3 style="margin-bottom:12px;" data-i18n="ui.158">选择测试模型</h3>
+            <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:12px;" data-i18n="ui.159">选择一个模型进行跑分测试</p>
             <div id="benchModelList" style="margin-bottom:12px;">
-                <div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:13px;">加载中...</div>
+                <div style="padding:16px;text-align:center;color:var(--text-tertiary);font-size:13px;" data-i18n="ui.052">加载中...</div>
             </div>
             <div style="display:flex;gap:12px;margin-bottom:12px;">
                 <div class="form-group" style="flex:1;">
-                    <label style="font-size:11px;">Prompt 长度</label>
+                    <label style="font-size:11px;" data-i18n="ui.160">Prompt 长度</label>
                     <select id="benchPromptLen" class="form-select" style="width:100%;" onchange="previewBenchPrompt()">
-                        <option value="50">短 (50 tokens)</option>
-                        <option value="200" selected>标准 (200 tokens)</option>
-                        <option value="500">长 (500 tokens)</option>
+                        <option value="50" data-i18n="ui.161">短 (50 tokens)</option>
+                        <option value="200" selected data-i18n="ui.162">标准 (200 tokens)</option>
+                        <option value="500" data-i18n="ui.163">长 (500 tokens)</option>
                     </select>
                 </div>
                 <div class="form-group" style="flex:1;">
-                    <label style="font-size:11px;">测试次数</label>
+                    <label style="font-size:11px;" data-i18n="ui.164">测试次数</label>
                     <select id="benchRunCount" class="form-select" style="width:100%;">
-                        <option value="1">1 次快速</option>
-                        <option value="3" selected>3 次标准 (去极值平均)</option>
-                        <option value="5">5 次精确 (去极值平均)</option>
+                        <option value="1" data-i18n="ui.165">1 次快速</option>
+                        <option value="3" selected data-i18n="ui.166">3 次标准 (去极值平均)</option>
+                        <option value="5" data-i18n="ui.167">5 次精确 (去极值平均)</option>
                     </select>
                 </div>
             </div>
             <div style="margin-bottom:12px;">
                 <div style="font-size:11px;color:var(--text-tertiary);margin-bottom:4px;cursor:pointer;display:flex;align-items:center;gap:4px;" onclick="toggleBenchPromptPreview()">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    查看测试问题 <span id="benchPromptToggle">展开</span></div>
+                    查看测试问题 <span id="benchPromptToggle" data-i18n="ui.168">展开</span></div>
                 <div id="benchPromptPreview" style="display:none;font-size:11px;color:var(--text-secondary);background:var(--bg-primary);padding:8px 10px;border-radius:6px;border:1px solid var(--border-subtle);max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;"></div>
             </div>
             <div class="card-actions" style="justify-content:space-between;">
-                <button class="btn btn-danger" onclick="closeBenchModel()">返回</button>
-                <button class="btn btn-accent" id="benchModelConfirmBtn" onclick="confirmBenchModel()" disabled>开始跑分</button>
+                <button class="btn btn-danger" onclick="closeBenchModel()" data-i18n="ui.169">返回</button>
+                <button class="btn btn-accent" id="benchModelConfirmBtn" onclick="confirmBenchModel()" disabled data-i18n="ui.033">开始跑分</button>
             </div>
         </div>
     </div>
@@ -1138,7 +1140,7 @@
     <!-- 跑分前检查弹窗（有模型运行时提示） -->
     <div class="download-overlay hidden" id="benchCheckOverlay" style="z-index:500;">
         <div class="download-box" style="text-align:center;max-width:460px;">
-            <h3 id="benchCheckTitle" style="margin-bottom:12px;">环境检测</h3>
+            <h3 id="benchCheckTitle" style="margin-bottom:12px;" data-i18n="ui.170">环境检测</h3>
             <div id="benchCheckBody" style="font-size:13px;color:var(--text-secondary);line-height:1.8;margin-bottom:20px;"></div>
             <div class="card-actions" id="benchCheckActions" style="justify-content:center;"></div>
         </div>
@@ -1147,19 +1149,19 @@
     <!-- 跑分进度弹窗 -->
     <div class="download-overlay hidden" id="benchRunningOverlay">
         <div class="download-box" style="text-align:center;max-width:500px;">
-            <h3 style="margin-bottom:8px;">性能跑分中</h3>
-            <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px;" id="benchStatusText">准备中...</p>
+            <h3 style="margin-bottom:8px;" data-i18n="ui.171">性能跑分中</h3>
+            <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px;" id="benchStatusText" data-i18n="ui.131">准备中...</p>
             <div style="margin-bottom:16px;">
-                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">总体进度</div>
+                <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;" data-i18n="ui.172">总体进度</div>
                 <div style="width:100%;height:6px;background:var(--border-subtle);border-radius:3px;overflow:hidden;">
                     <div id="benchProgressFill" style="width:0%;height:100%;background:linear-gradient(90deg,var(--accent),#66bb6a);border-radius:3px;transition:width 0.3s;"></div>
                 </div>
             </div>
             <div style="text-align:left;font-size:12px;color:var(--text-secondary);line-height:1.8;margin-bottom:16px;" id="benchResults">
-                <div style="color:var(--text-tertiary);font-style:italic;">等待测试开始...</div>
+                <div style="color:var(--text-tertiary);font-style:italic;" data-i18n="ui.173">等待测试开始...</div>
             </div>
             <div class="card-actions" style="justify-content:center;">
-                <button class="btn btn-danger" id="benchCancelBtn" onclick="cancelBenchmark()">取消测试</button>
+                <button class="btn btn-danger" id="benchCancelBtn" onclick="cancelBenchmark()" data-i18n="ui.174">取消测试</button>
             </div>
         </div>
     </div>

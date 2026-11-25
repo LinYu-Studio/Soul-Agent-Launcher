@@ -19,7 +19,7 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
-import os, json, re, hashlib, secrets, datetime
+import os, json, re, hashlib, hmac, secrets, time, datetime
 from pathlib import Path
 from flask import Flask, request, jsonify, render_template, send_file, session, redirect, url_for, abort
 from functools import wraps
@@ -97,6 +97,51 @@ def login_required(f):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
     return decorated
+
+
+# ---------- 登录限流（暴力破解防护） ----------
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_SECS = 300
+_login_attempts = {}  # ip -> [时间戳]
+
+
+def _client_ip() -> str:
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def _recent_failures(ip: str):
+    now = time.time()
+    arr = [t for t in _login_attempts.get(ip, []) if now - t < LOGIN_WINDOW_SECS]
+    _login_attempts[ip] = arr
+    return arr
+
+
+def _login_blocked(ip: str) -> bool:
+    return len(_recent_failures(ip)) >= LOGIN_MAX_ATTEMPTS
+
+
+def _record_login_failure(ip: str):
+    arr = _recent_failures(ip)
+    arr.append(time.time())
+    _login_attempts[ip] = arr
+
+
+# ---------- CSRF ----------
+def _csrf_token() -> str:
+    tok = session.get('csrf_token')
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        session['csrf_token'] = tok
+    return tok
+
+
+def _csrf_ok() -> bool:
+    sent = request.form.get('csrf_token', '')
+    expected = session.get('csrf_token', '')
+    return bool(expected) and hmac.compare_digest(sent, expected)
 
 
 # ============================================================
@@ -206,15 +251,23 @@ def api_download(filename):
 @app.route('/admin', methods=['GET', 'POST'])
 def admin_login():
     error = None
+    ip = _client_ip()
     if request.method == 'POST':
-        username = request.form.get('username', '')
-        password = request.form.get('password', '')
-        if username == config.get('admin_user') and sha256_hex(password) == config.get('admin_password_hash'):
-            session['admin_logged_in'] = True
-            return redirect(url_for('admin_panel'))
-        error = '用户名或密码错误'
+        if not _csrf_ok():
+            error = '会话已过期，请刷新页面后重试'
+        elif _login_blocked(ip):
+            error = '尝试次数过多，请 5 分钟后再试'
+        else:
+            username = request.form.get('username', '')
+            password = request.form.get('password', '')
+            if username == config.get('admin_user') and sha256_hex(password) == config.get('admin_password_hash'):
+                session['admin_logged_in'] = True
+                _login_attempts.pop(ip, None)
+                return redirect(url_for('admin_panel'))
+            _record_login_failure(ip)
+            error = '用户名或密码错误'
 
-    return render_template('admin.html', error=error, login=True)
+    return render_template('admin.html', error=error, login=True, csrf_token=_csrf_token())
 
 
 @app.route('/admin/panel')
@@ -231,12 +284,15 @@ def admin_panel():
                 'mtime': datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M'),
             })
 
-    return render_template('admin.html', login=False, version_info=version_info, versions=versions)
+    return render_template('admin.html', login=False, version_info=version_info,
+                           versions=versions, csrf_token=_csrf_token())
 
 
 @app.route('/admin/update-version', methods=['POST'])
 @login_required
 def admin_update_version():
+    if not _csrf_ok():
+        abort(400, description="CSRF token 无效或已过期，请刷新页面后重试")
     latest_version = request.form.get('latest_version', '').strip()
     release_notes = request.form.get('release_notes', '').strip()
     force_update = request.form.get('force_update', 'off') == 'on'

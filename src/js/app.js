@@ -1040,6 +1040,17 @@ async function runEnvCheck() {
     _envBusy = false;
 }
 
+/// 手动清理更新流程留下的临时文件（.part / 旧 MSI / 安装批处理）
+window.cleanupTempFiles = async function() {
+    try {
+        var r = await window.__TAURI__.core.invoke('cleanup_temp_files');
+        var mb = ((r.freed_bytes || 0) / 1048576).toFixed(1);
+        showKbToast(_t('env.temp_cleaned', { count: r.count || 0, size: mb }));
+    } catch (e) {
+        alert(_t('env.temp_clean_failed') + e);
+    }
+};
+
 async function checkEnvComponent(kind) {
     var dot = document.getElementById('envDot-' + kind);
     var msg = document.getElementById('envMsg-' + kind);

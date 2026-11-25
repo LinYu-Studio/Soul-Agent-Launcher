@@ -134,6 +134,7 @@
     <h1>🔐 SAL 更新管理</h1>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>用户名</label>
         <input type="text" name="username" placeholder="管理员用户名" required>
         <label>密码</label>
@@ -162,6 +163,7 @@
 <div class="card">
     <h2>发布新版本</h2>
     <form method="POST" action="/admin/update-version" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>版本号（如 0.3.2）</label>
         <input type="text" name="latest_version" value="{{ version_info.latest_version }}" required>
 
