@@ -217,6 +217,7 @@ def api_check_update():
     resp = jsonify({
         "has_update": has_update,
         "latest_version": version_info.get('latest_version', '0.0.0'),
+        "display_version": version_info.get('display_version', ''),
         "download_url": version_info.get('download_url', ''),
         "sha256": version_info.get('sha256', ''),
         "release_notes": version_info.get('release_notes', ''),
@@ -318,6 +319,7 @@ def admin_update_version():
     if latest_version:
         data = load_current_version()
         data['latest_version'] = latest_version
+        data['display_version'] = latest_version  # 网站展示用（可含 - Beta 等后缀）
         if release_notes:
             data['release_notes'] = release_notes
         if download_url:

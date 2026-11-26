@@ -2,7 +2,8 @@
   "latest_version": "0.3.2",
   "download_url": "",
   "sha256": "",
-  "release_notes": "0.4.2 正在准备中，发布后开放下载",
+  "release_notes": "0.4.2 - Beta 已发布：真流式输出、智能待机、应用内更新、崩溃自动恢复与全局搜索",
   "force_update": false,
-  "release_date": ""
+  "release_date": "",
+  "display_version": "0.4.2 - Beta"
 }

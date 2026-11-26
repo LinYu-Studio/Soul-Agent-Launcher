@@ -51,7 +51,7 @@
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
             </svg>
-            Soul Agent Launcher {{ version_info.latest_version }} 最新版
+            Soul Agent Launcher {{ version_info.get('display_version') or version_info.get('latest_version') }} 最新版
         </span>
         <h1 class="animate-fade-in animate-delay-3">超轻量AI大模型<br>一键部署启动器</h1>
         <p class="subtitle animate-fade-in animate-delay-4">
